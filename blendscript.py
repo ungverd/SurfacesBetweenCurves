@@ -33,20 +33,20 @@ class BigPoint:
 
 
 class Point:
-    def __init__(self, i: int, curve: "Curve", bpoint: "BigPoint"):
+    def __init__(self, i: int, spline: "Spline", bpoint: "BigPoint"):
         self.bpoint: BigPoint = bpoint
         self.i: int = i
         self.prev_seg: Optional[Segment] = None
         self.post_seg: Optional[Segment] = None
-        self.curve: Curve = curve
+        self.spline: Spline = spline
 
 
-class Curve:
+class Spline:
     def __init__(self, glist: "GlobalList"):
         self.points: List[Point] = []
         self.segments: List[Segment] = []
         self.glist = glist
-        self.glist.add_curve(self)
+        self.glist.add_spline(self)
 
     def add_point(self, coords: mathutils.Vector):
         i = 0
@@ -70,7 +70,7 @@ class Curve:
             seg = Segment(self.points[p_num - 2], point, self.glist)
             self.segments.append(seg)
 
-    def round_curve(self):
+    def round_spline(self):
         seg = Segment(self.points[-1], self.points[0], self.glist)
         self.segments.append(seg)
 
@@ -112,7 +112,7 @@ class Quad:
         return post_seg
 
     @staticmethod
-    def move_along_curve(segments: List[Segment], s0: Segment):
+    def move_along_spline(segments: List[Segment], s0: Segment):
         edg: List[Segment] = [s0]
         s = s0
         bps: List[BigPoint] = []
@@ -247,10 +247,10 @@ class Quad:
         for segment in segments:
             if segment.finished:
                 return False
-        edg1, b1 = Quad.move_along_curve(segments, segments[0])
+        edg1, b1 = Quad.move_along_spline(segments, segments[0])
         ret = Quad.get_neighbours(segments, edg1)
-        edg2, b2 = Quad.move_along_curve(segments, ret[1])
-        edg4, b4 = Quad.move_along_curve(segments, ret[0])
+        edg2, b2 = Quad.move_along_spline(segments, ret[1])
+        edg4, b4 = Quad.move_along_spline(segments, ret[0])
         if len(edg2) != len(edg4):
             return False
         if le - len(edg2)*2 != len(edg1)*2:
@@ -260,7 +260,7 @@ class Quad:
             seg = ret[0]
         else:
             seg = ret[1]
-        edg3, b3 = Quad.move_along_curve(segments, seg)
+        edg3, b3 = Quad.move_along_spline(segments, seg)
         if le != len(edg1) + len(edg2) + len(edg3) + len(edg4):
             return False
         dir1 = True
@@ -335,7 +335,7 @@ class GlobalList:
         self.reduced_points: List[mathutils.Vector] = []
         self.big_points: List[BigPoint] = []
         self.count = 0
-        self.curves: List[Curve] = []
+        self.splines: List[Spline] = []
         self.quads: List[Quad] = []
         self.segments: List[Segment] = []
 
@@ -355,11 +355,11 @@ class GlobalList:
     def get_bpoint(self, i: int):
         return self.big_points[i]
 
-    def add_curve(self, curve: Curve):
-        self.curves.append(curve)
+    def add_spline(self, spline: Spline):
+        self.splines.append(spline)
 
-    def get_curves(self):
-        return self.curves
+    def get_splines(self):
+        return self.splines
 
     def add_segment(self, segment: Segment):
         self.segments.append(segment)
@@ -370,11 +370,11 @@ class GlobalList:
     def work_with_segment(self, segment: Segment):
         segments_verified = [segment]
         bpoints_verified: List[BigPoint] = []
-        counter_curves = 1
-        prev_curve = segment.p1.curve
-        initial_curve = prev_curve
+        counter_splines = 1
+        prev_spline = segment.p1.spline
+        initial_spline = prev_spline
         initial_bpoint = segment.p1.bpoint
-        self.edge_step(initial_bpoint, segment.p2, segments_verified, bpoints_verified, counter_curves, prev_curve, initial_curve, True)
+        self.edge_step(initial_bpoint, segment.p2, segments_verified, bpoints_verified, counter_splines, prev_spline, initial_spline, True)
         segment.finished = True
 
     def edge_step(self,
@@ -382,20 +382,20 @@ class GlobalList:
                   point: Point,
                   segments_verified: List[Segment],
                   bpoints_verified: List[BigPoint],
-                  counter_curves: int,
-                  prev_curve: Curve,
-                  initial_curve: Curve,
+                  counter_splines: int,
+                  prev_spline: Spline,
+                  initial_spline: Spline,
                   first: bool) -> StepRes:
         bpoint = point.bpoint
-        curve = point.curve
-        if curve != prev_curve:
-            counter_curves += 1
-            if counter_curves > 5:
+        spline = point.spline
+        if spline != prev_spline:
+            counter_splines += 1
+            if counter_splines > 5:
                 return StepRes.NOT_FINISHED
-            if counter_curves == 5 and curve != initial_curve:
+            if counter_splines == 5 and spline != initial_spline:
                 return StepRes.NOT_FINISHED
         if initial_bpoint == bpoint:
-            if counter_curves < 4:
+            if counter_splines < 4:
                 return StepRes.NOT_FINISHED
             if Quad.verify_and_init(segments_verified, self):
                 if segments_verified[0].finished:
@@ -411,9 +411,9 @@ class GlobalList:
                                     True,
                                     segments_verified,
                                     bpoints_verified,
-                                    counter_curves,
-                                    curve,
-                                    initial_curve,
+                                    counter_splines,
+                                    spline,
+                                    initial_spline,
                                     first)
             if res in (StepRes.FINISHED, StepRes.PART_FINISHED):
                 bpoints_verified.pop()
@@ -424,9 +424,9 @@ class GlobalList:
                                     False,
                                     segments_verified,
                                     bpoints_verified,
-                                    counter_curves,
-                                    curve,
-                                    initial_curve,
+                                    counter_splines,
+                                    spline,
+                                    initial_spline,
                                     first)
             if res in (StepRes.FINISHED, StepRes.PART_FINISHED):
                 bpoints_verified.pop()
@@ -440,16 +440,16 @@ class GlobalList:
                      is_p1: bool,
                      sv: List[Segment],
                      bv: List[BigPoint],
-                     counter_curves: int,
-                     curve: Curve,
-                     initial_curve: Curve,
+                     counter_splines: int,
+                     spline: Spline,
+                     initial_spline: Spline,
                      first: bool) -> StepRes:
         if segment is not None:
             if not segment in sv:
                 if not segment.finished:
                     sv.append(segment)
                     point = segment.p1 if is_p1 else segment.p2
-                    res = self.edge_step(initial_bpoint, point, sv, bv, counter_curves, curve, initial_curve, False)
+                    res = self.edge_step(initial_bpoint, point, sv, bv, counter_splines, spline, initial_spline, False)
                     sv.pop()
                     match res:
                         case StepRes.FINISHED: 
@@ -502,8 +502,8 @@ def work_with_mesh(glist: GlobalList, active: bpy.types.Object, nedges: int):
     bpy.context.collection.objects.link(obj)
 
 
-class CreateSurfacesBetweenCurves(bpy.types.Operator):
-    """My Creating Surfaces Between Curves Script"""      # Use this as a tooltip for menu items and buttons.
+class CreateSurfacesBetweenSplines(bpy.types.Operator):
+    """My Creating Surfaces Between Splines Script"""      # Use this as a tooltip for menu items and buttons.
     bl_idname = "object.create_surfs"        # Unique identifier for buttons and menu items to reference.
     bl_label = "Create surfaces"         # Display name in the interface.
     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
@@ -518,25 +518,25 @@ class CreateSurfacesBetweenCurves(bpy.types.Operator):
         splines = cur.splines
 
         for s in splines:
-            curve = Curve(glist)
+            spline = Spline(glist)
             for p in s.bezier_points:
-                curve.add_point(p.co)
+                spline.add_point(p.co)
             if s.use_cyclic_u:
-                curve.round_curve
+                spline.round_spline()
         glist.add_quads()
         work_with_mesh(glist, active, nedges)
 
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
 
 def menu_func(self, context):
-    self.layout.operator(CreateSurfacesBetweenCurves.bl_idname)
+    self.layout.operator(CreateSurfacesBetweenSplines.bl_idname)
 
 def register():
-    bpy.utils.register_class(CreateSurfacesBetweenCurves)
+    bpy.utils.register_class(CreateSurfacesBetweenSplines)
     bpy.types.VIEW3D_MT_object.append(menu_func)  # Adds the new operator to an existing menu.
 
 def unregister():
-    bpy.utils.unregister_class(CreateSurfacesBetweenCurves)
+    bpy.utils.unregister_class(CreateSurfacesBetweenSplines)
 
 
 # This allows you to run the script directly from Blender's Text editor
