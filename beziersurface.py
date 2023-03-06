@@ -44,11 +44,9 @@ try:
         cp_transposed = np.expand_dims(np.expand_dims(cp.transpose(2, 0, 1), 1), 1)
         # numpy magic to be able to multiply control point vectors with Bernstein coefficients
         res: npt.NDArray[np.float32] = np.sum((BERNS2 * cp_transposed), (3, 4)).transpose(2, 1, 0)
-        res = res.reshape(N1 * N1, 3)
         # numpy representation of the formula p(u,v) = sum_i_from_0_to_3(sum_j_from_0_to_3( k(i,j)*B(i,u)*B(j,v) ))
-        #mesh.from_pydata([mathutils.Vector(p) for p in res.reshape(N1 * N1, 3)], [], FACES)
+        res = res.reshape(N1 * N1, 3)
         mesh.from_pydata(res, [], FACES)
-        #return [[mathutils.Vector(p) for p in row] for row in res]
 
 except (ModuleNotFoundError, ImportError):
     t = time.time()
@@ -75,6 +73,13 @@ def calc_basis(edge: mathutils.Vector, point: mathutils.Vector, handle: mathutil
     y_vec = point - point.project(edge)
     z_vec = edge.cross(point)
     return (x_vec, y_vec, z_vec)
+
+def make_coplanar(v1: mathutils.Vector, v2: mathutils.Vector, v3: mathutils.Vector):
+    v4 = v2 - v3
+    normal = v1.cross(v4)
+    new_v2 = v2 - v2.project(normal)
+    new_v3 = v3 - v3.project(normal)
+    return (new_v2, new_v3)
 
 class BezierCurve:
     def __init__(self,
