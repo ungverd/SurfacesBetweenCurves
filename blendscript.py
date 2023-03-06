@@ -403,41 +403,35 @@ class GlobalList:
                 return StepRes.PART_FINISHED
         if bpoint in bpoints_verified:
             return StepRes.NOT_FINISHED
-        #bv = bpoints_verified[:]
-        bv = bpoints_verified
-        bv.append(bpoint)
+        bpoints_verified.append(bpoint)
         for point in bpoint.points:
-            #sv = segments_verified[:]
-            sv = segments_verified
             segment1 = point.prev_seg
             res = self.step_segment(initial_bpoint,
                                     segment1,
                                     True,
-                                    sv,
-                                    bv,
+                                    segments_verified,
+                                    bpoints_verified,
                                     counter_curves,
                                     curve,
                                     initial_curve,
                                     first)
             if res in (StepRes.FINISHED, StepRes.PART_FINISHED):
-                bv.pop()
+                bpoints_verified.pop()
                 return res
-            #sv = segments_verified[:]
-            sv = segments_verified
             segment2 = point.post_seg
             res = self.step_segment(initial_bpoint,
                                     segment2,
                                     False,
-                                    sv,
-                                    bv,
+                                    segments_verified,
+                                    bpoints_verified,
                                     counter_curves,
                                     curve,
                                     initial_curve,
                                     first)
             if res in (StepRes.FINISHED, StepRes.PART_FINISHED):
-                bv.pop()
+                bpoints_verified.pop()
                 return res
-        bv.pop()
+        bpoints_verified.pop()
         return StepRes.NOT_FINISHED
 
     def step_segment(self,
