@@ -390,6 +390,7 @@ class GlobalList:
         spline = point.spline
         if spline != prev_spline:
             counter_splines += 1
+            first = False
             if counter_splines > 5:
                 return StepRes.NOT_FINISHED
             if counter_splines == 5 and spline != initial_spline:
@@ -449,7 +450,7 @@ class GlobalList:
                 if not segment.finished:
                     sv.append(segment)
                     point = segment.p1 if is_p1 else segment.p2
-                    res = self.edge_step(initial_bpoint, point, sv, bv, counter_splines, spline, initial_spline, False)
+                    res = self.edge_step(initial_bpoint, point, sv, bv, counter_splines, spline, initial_spline, first)
                     sv.pop()
                     match res:
                         case StepRes.FINISHED: 
