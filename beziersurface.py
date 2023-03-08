@@ -111,7 +111,7 @@ class BezierCurve:
                           curve_a0: "BezierCurve",
                           curve_a3: "BezierCurve",
                           curve_b0: "BezierCurve",
-                          curve_b3: "BezierCurve"):
+                          curve_b3: "BezierCurve") -> bool:
         a0 = self.get_a0(curve_a0)
         a3 = self.get_a3(curve_a3)
         b0 = self.get_b0(curve_b0)
@@ -119,11 +119,40 @@ class BezierCurve:
         c0 = self.c0
         c1 = self.c1
         c2 = self.c2
+        for v in (a0, a3, b0, b3, c0, c2):
+            if v.length < TH:
+                return False
+        if not are_coplanar(a0, b0, c0) or not are_coplanar(a3, c2, b3):
+            return False
+        if b0.cross(c0).length < TH or b3.cross(c2).length < TH:
+            return False
+        k0, h0 = get_coefs(b0, c0, a0)
+        k1, h1 = get_coefs(b3, c2, a3)
+        b1 = 2/3 * b0 + 1/3 * b3
+        b2 = 1/3 * b0 + 2/3 * b3
+        a1 = 1/3 * (k1 - k0) * b0 + k0 * b1 + 2/3 * h0 * c1 + 1/3 * h1 * c0
+        a2 = k1 * b2 - 1/3 * (k1 - k0) * b3 + 1/3 * h0 * c2 + 2/3 * h1 * c1
+        return True
+
+
+def get_coefs(b: mathutils.Vector, c: mathutils.Vector, a: mathutils.Vector):
+    if b[0] < TH and c[0] < TH:
+        return coefs_use_axis(b, c, a, 1, 2)
+    if b[1] < TH and c[1] < TH:
+        return coefs_use_axis(b, c, a, 0, 2)
+    return coefs_use_axis(b, c, a, 0, 1)
+
+def coefs_use_axis(b: mathutils.Vector, c: mathutils.Vector, a: mathutils.Vector, i: int, j: int):
+    h = (a[i]*b[j] - a[j]*b[i]) / (c[i]*b[j] - c[j]*b[i])
+    if b[i] > TH:
+        k = (a[i] - h * c[i]) / b[i]
+    else:
+        k = (a[j] - h * c[j]) / b[j]
+    return (k, h)
 
 
 def get_loc(name: str) -> mathutils.Vector:
     return bpy.data.objects[name].location
-
 
 def same_coords(c1: mathutils.Vector, c2: mathutils.Vector) -> bool:
     return (c1-c2).length_squared < TH2
