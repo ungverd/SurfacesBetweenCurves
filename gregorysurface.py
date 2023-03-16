@@ -64,8 +64,8 @@ try:
 
     DIMS1 = np.empty((N-1, N-1, 1, 2, 3))
     DIMS2 = np.empty((N-1, N-1, 4, 1, 3))
-    DIMS3 = np.empty((1, N-1, 4, 4, 3))
-    DIMS4 = np.empty((N+1, 1, 4, 4, 3))
+    #DIMS3 = np.empty((1, N-1, 4, 4, 3))
+    #DIMS4 = np.empty((N+1, 1, 4, 4, 3))
 
     def calc_control_points_np(input1: List[List[mathutils.Vector]],
                                input2: List[List[mathutils.Vector]]):
