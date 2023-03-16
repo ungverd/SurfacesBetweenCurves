@@ -48,20 +48,17 @@ try:
     U = np.expand_dims(V, 1)  # shape (N+1, 1  )
     V0 = V[1:N] # shape      (N-1)
     U0 = U[1:N] # shape (N-1, 1  )
-    V02 = np.expand_dims(np.stack((V0, 1-V0), 1), axis=(1,3))     # shape      (N-1, 1, 2, 1)
-    U02 = np.expand_dims(V02, axis=4)                             # shape (N-1, 1  , 2, 1, 1)
-    #row1 = np.stack((U0+V0, 1-V0+U0), 2)   # shape (N-1, N-1, 2)
-    #row2 = np.stack((V0+1-U0, 2-U0-V0), 2) # shape (N-1, N-1, 2)
-    #UV_DIV = np.expand_dims(np.stack((row1, row2), 3), axis=4)    # shape (N-1, N-1, 2, 2, 1)
-    UV_DIV = U02 + V02    # shape (N-1, N-1, 2, 2, 1)
+    V02 = np.expand_dims(np.stack((V0, 1-V0), 1), axis=(1,3)) # shape      (N-1, 1, 2, 1)
+    U02 = np.expand_dims(V02, axis=4)                         # shape (N-1, 1  , 2, 1, 1)
+    UV_DIV = U02 + V02                                        # shape (N-1, N-1, 2, 2, 1)
 
     '''BERNS_NP = np.expand_dims(COMBS * U**J_S * (1-U)**(3-J_S), axis=1) # shape      (N+1, 1, 4)
     BERNS_NP_2 = np.expand_dims(BERNS_NP, axis=3)                      # shape (N+1, 1  , 4, 1)
     BERNS2 = np.expand_dims(BERNS_NP*BERNS_NP_2, axis=4)               # shape (N+1, N+1, 4, 4, 1)'''
 
     BERNS_NP = np.expand_dims(COMBS * U0**J_S * (1-U0)**(3-J_S), axis=1) # shape      (N-1, 1, 4)
-    BERNS_NP_2 = np.expand_dims(BERNS_NP, axis=3)                       # shape (N-1, 1  , 4, 1)
-    BERNS2 = np.expand_dims(BERNS_NP*BERNS_NP_2, axis=4)                # shape (N-1, N-1, 4, 4, 1)
+    BERNS_NP_2 = np.expand_dims(BERNS_NP, axis=3)                        # shape (N-1, 1  , 4, 1)
+    BERNS2 = np.expand_dims(BERNS_NP*BERNS_NP_2, axis=4)                 # shape (N-1, N-1, 4, 4, 1)
 
     # numpy magic to get products of all combinations of Bernstein coefficients
 
