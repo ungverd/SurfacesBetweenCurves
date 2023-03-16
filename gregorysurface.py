@@ -13,11 +13,6 @@ N1 = N + 1
 TH = 0.00001
 TH2 = TH**2
 
-def bernstein(i: int, u: float):
-    return math.comb(3, i) * u**i * (1-u)**(3-i)
-
-BERNS = [[bernstein(i, k/N) for i in range(4)] for k in range(N1)]
-
 def calculate_faces():
     faces: List[List[int]] = []
     for i in range(N-2):
@@ -29,32 +24,90 @@ def calculate_faces():
             faces.append(face)
     return faces
 
+'''def calculate_faces():
+    faces: List[List[int]] = []
+    for i in range(N):
+        for j in range(N):
+            face = [i * (N + 1) + j]
+            face.append(i * (N + 1) + j + 1)
+            face.append((i + 1) * (N + 1) + j + 1)
+            face.append((i + 1) * (N + 1) + j)
+            faces.append(face)
+    return faces'''
+
 FACES = calculate_faces()
 
 try:
-    raise(ModuleNotFoundError)
+    #raise(ModuleNotFoundError)
     import numpy as np
     import numpy.typing as npt
     t = time.time()
-    BERNS_NP = np.array(BERNS)
-    BERNS2 = np.multiply(*np.meshgrid(BERNS_NP, BERNS_NP)).reshape(N1*4, N1, 4).transpose(1, 0, 2).reshape(N1, N1, 4, 4)
+    J_S = np.arange(4)                               # shape (4)
+    COMBS = np.array([math.comb(3, i) for i in J_S]) # shape (4)
+    V = np.linspace(0, 1, N1) # shape      (N+1)
+    U = np.expand_dims(V, 1)  # shape (N+1, 1  )
+    V0 = V[1:N] # shape      (N-1)
+    U0 = U[1:N] # shape (N-1, 1  )
+    V02 = np.expand_dims(np.stack((V0, 1-V0), 1), axis=(1,3))     # shape      (N-1, 1, 2, 1)
+    U02 = np.expand_dims(V02, axis=4)                             # shape (N-1, 1  , 2, 1, 1)
+    #row1 = np.stack((U0+V0, 1-V0+U0), 2)   # shape (N-1, N-1, 2)
+    #row2 = np.stack((V0+1-U0, 2-U0-V0), 2) # shape (N-1, N-1, 2)
+    #UV_DIV = np.expand_dims(np.stack((row1, row2), 3), axis=4)    # shape (N-1, N-1, 2, 2, 1)
+    UV_DIV = U02 + V02    # shape (N-1, N-1, 2, 2, 1)
+
+    '''BERNS_NP = np.expand_dims(COMBS * U**J_S * (1-U)**(3-J_S), axis=1) # shape      (N+1, 1, 4)
+    BERNS_NP_2 = np.expand_dims(BERNS_NP, axis=3)                      # shape (N+1, 1  , 4, 1)
+    BERNS2 = np.expand_dims(BERNS_NP*BERNS_NP_2, axis=4)               # shape (N+1, N+1, 4, 4, 1)'''
+
+    BERNS_NP = np.expand_dims(COMBS * U0**J_S * (1-U0)**(3-J_S), axis=1) # shape      (N-1, 1, 4)
+    BERNS_NP_2 = np.expand_dims(BERNS_NP, axis=3)                       # shape (N-1, 1  , 4, 1)
+    BERNS2 = np.expand_dims(BERNS_NP*BERNS_NP_2, axis=4)                # shape (N-1, N-1, 4, 4, 1)
+
     # numpy magic to get products of all combinations of Bernstein coefficients
 
-    def calc_bezier_surf(control_points: List[List[mathutils.Vector]], mesh: bpy.types.Mesh):
-        cp = np.array(control_points)
-        cp_transposed = np.expand_dims(np.expand_dims(cp.transpose(2, 0, 1), 1), 1)
-        # numpy magic to be able to multiply control point vectors with Bernstein coefficients
-        res: npt.NDArray[np.float32] = np.sum((BERNS2 * cp_transposed), (3, 4)).transpose(2, 1, 0)
+    DIMS1 = np.empty((N-1, N-1, 1, 2, 3))
+    DIMS2 = np.empty((N-1, N-1, 4, 1, 3))
+    DIMS3 = np.empty((1, N-1, 4, 4, 3))
+    DIMS4 = np.empty((N+1, 1, 4, 4, 3))
+
+    def calc_control_points_np(input1: List[List[mathutils.Vector]],
+                               input2: List[List[mathutils.Vector]]):
+        full = np.array(input1)                     # shape           (4, 4, 3)
+        cp_u = full[1:3, 1:3, :]                    # shape           (2, 2, 3)
+        cp_v = np.array(input2)                     # shape           (2, 2, 3)
+        cp_central = (cp_u*V02 + cp_v*U02) / UV_DIV # shape (N-1, N-1, 2, 2, 3)
+
+        top, _ = np.broadcast_arrays(full[0, 1:3], DIMS1)        # shape (N-1, N-1, 1, 2, 3)
+        bottom, _ = np.broadcast_arrays(full[3, 1:3], DIMS1)     # shape (N-1, N-1, 1, 2, 3)
+        res1 = np.concatenate((top, cp_central, bottom), axis=2) # shape (N-1, N-1, 4, 2, 3)
+        left, _ = np.broadcast_arrays(np.expand_dims(full[:, 0], axis=1), DIMS2)  # shape (N-1, N-1, 4, 1, 3)
+        right, _ = np.broadcast_arrays(np.expand_dims(full[:, 3], axis=1), DIMS2) # shape (N-1, N-1, 4, 1, 3)
+        res2 = np.concatenate((left, res1, right), axis=3)  # shape (N-1, N-1, 4, 4, 3)
+        '''side1, _ = np.broadcast_arrays(full, DIMS3)         # shape (1  , N-1, 4, 4, 3)
+        res3 = np.concatenate((side1, res2, side1), axis=0) # shape (N+1, N-1, 4, 4, 3)
+        side2, _ = np.broadcast_arrays(full, DIMS4)         # shape (N+1, 1  , 4, 4, 3)
+        return np.concatenate((side2, res3, side2), axis=1) # shape (N+1, N+1, 4, 4, 3)'''
+        return res2
+
+    def calc_gregory_surf(kk: List[List[mathutils.Vector]],
+                          kk1: List[List[mathutils.Vector]],
+                          mesh: bpy.types.Mesh):
+        control_points = calc_control_points_np(kk, kk1)
+        #res: npt.NDArray[np.float32] = np.sum((BERNS2 * control_points), (2, 3)).reshape(N1 * N1, 3)
+        res: npt.NDArray[np.float32] = np.sum((BERNS2 * control_points), (2, 3)).reshape(N-1 * N-1, 3)
         # numpy representation of the formula p(u,v) = sum_i_from_0_to_3(sum_j_from_0_to_3( k(i,j)*B(i,u)*B(j,v) ))
-        res = res.reshape(N1 * N1, 3)
         mesh.from_pydata(res, [], FACES)
 
 except (ModuleNotFoundError, ImportError):
     t = time.time()
+    def bernstein(i: int, u: float):
+        return math.comb(3, i) * u**i * (1-u)**(3-i)
+
+    BERNS = [[bernstein(i, k/N) for i in range(4)] for k in range(N1)]
     def berns2_el(i: int, j: int, nu: int, nv:int):
         return BERNS[nu][i] * BERNS[nv][j]
 
-    B2 = [[[[berns2_el(i,j,nu,nv) for i in range(4)] for j in range(4)] for nu in range(N1)] for nv in range(N1)]
+    B2 = [[[[berns2_el(i,j,nu,nv) for j in range(4)] for i in range(4)] for nv in range(N1)] for nu in range(N1)]
 
     def calc_control_points(kk: List[List[mathutils.Vector]],
                             kk1: List[List[mathutils.Vector]],
@@ -63,23 +116,23 @@ except (ModuleNotFoundError, ImportError):
         u = nu / N
         v = nv / N
         cp = deepcopy(kk)
-        cp[1][1] = (u * kk1[1][1] + v * kk[1][1]) / (u + v)
-        cp[2][1] = ((1 - u) * kk1[2][1] + v * kk[2][1]) / (1 - u + v)
-        cp[1][2] = (u * kk1[1][2] + (1 - v) * kk[1][2]) / (1 - v + u)
-        cp[2][2] = ((1 - u) * kk1[2][2] + (1 - v) * kk[2][2]) / (2 - u - v)
+        cp[1][1] = (u * kk1[0][0] + v * kk[1][1]) / (u + v)
+        cp[2][1] = ((1 - u) * kk1[1][0] + v * kk[2][1]) / (1 - u + v)
+        cp[1][2] = (u * kk1[0][1] + (1 - v) * kk[1][2]) / (1 - v + u)
+        cp[2][2] = ((1 - u) * kk1[1][1] + (1 - v) * kk[2][2]) / (2 - u - v)
         return cp
 
     def calc_point(nu: int, nv: int, kk: List[List[mathutils.Vector]], kk1: List[List[mathutils.Vector]]):
         el: List[float] = []
         control_points = calc_control_points(kk, kk1, nu, nv)
         for d in range(3):
-            el.append(sum(sum(control_points[j][i][d] * B2[nv][nu][j][i] for j in range(4)) for i in range(4)))
+            el.append(sum(sum(control_points[i][j][d] * B2[nu][nv][i][j] for j in range(4)) for i in range(4)))
         return mathutils.Vector(el)
 
-    def calc_bezier_surf(kk: List[List[mathutils.Vector]],
-                         kk1: List[List[mathutils.Vector]],
-                         mesh: bpy.types.Mesh):
-        res = [calc_point(nu, nv, kk, kk1) for nu in range(1, N) for nv in range(1, N)]
+    def calc_gregory_surf(kk: List[List[mathutils.Vector]],
+                          kk1: List[List[mathutils.Vector]],
+                          mesh: bpy.types.Mesh):
+        res = [calc_point(nu, nv, kk, kk1) for nv in range(1, N) for nu in range(1, N)]
         mesh.from_pydata(res, [], FACES)
 
 def are_coplanar(v1: mathutils.Vector, v2: mathutils.Vector, v3: mathutils.Vector):
@@ -176,11 +229,12 @@ def same_coords(c1: mathutils.Vector, c2: mathutils.Vector) -> bool:
 
 kk = [[get_loc(f"k{j}{i}")for i in range(4)] for j in range(4)]
 
-kk1 = deepcopy(kk)
+kk1 = deepcopy((kk)[1:3])
+kk1 = [row[1:3] for row in kk1]
+kk1[0][0] += mathutils.Vector((0.1, 0.05, 0.02))
+kk1[0][1] += mathutils.Vector((0.1, 0.05, 0.02))
+kk1[1][0] += mathutils.Vector((0.1, 0.05, 0.02))
 kk1[1][1] += mathutils.Vector((0.1, 0.05, 0.02))
-kk1[1][2] += mathutils.Vector((0.1, 0.05, 0.02))
-kk1[2][1] += mathutils.Vector((0.1, 0.05, 0.02))
-kk1[2][2] += mathutils.Vector((0.1, 0.05, 0.02))
 
 '''kk:np.ndarray = np.array([
                [np.array([-1.        ,  0.        ,  2.15774703]),
@@ -218,6 +272,6 @@ kk1[2][2] += mathutils.Vector((0.1, 0.05, 0.02))
                 [ 1.        , -1.        , -0.93721968],
                 [ 1.        ,  0.        , -0.93721968]]]'''
 mesh = bpy.data.meshes.new(name="New Object Mesh")
-calc_bezier_surf(kk, kk1, mesh)
+calc_gregory_surf(kk, kk1, mesh)
 obj = bpy.data.objects.new("MyObject", mesh)
 bpy.context.collection.objects.link(obj)
