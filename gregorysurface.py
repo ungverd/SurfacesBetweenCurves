@@ -43,7 +43,7 @@ try:
     import numpy.typing as npt
     t = time.time()
     J_S = np.arange(4)                               # shape (4)
-    COMBS = np.array([math.comb(3, i) for i in J_S]) # shape (4)
+    COMBS = np.array([math.comb(3, j) for j in J_S]) # shape (4)
     V = np.linspace(0, 1, N1) # shape      (N+1)
     U = np.expand_dims(V, 1)  # shape (N+1, 1  )
     V0 = V[1:N] # shape      (N-1)
