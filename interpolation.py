@@ -1,5 +1,5 @@
 import mathutils
-from typing import List
+from typing import List, Sequence
 
 def quad_edges_to_normal(co_a1: mathutils.Vector,
                          co_a2: mathutils.Vector,
@@ -55,9 +55,41 @@ def ortho_basis_v3v3_v3(n: mathutils.Vector):
         r_n2 = [0, 1, 0]
     return r_n1, r_n2
 
-
-
 def axis_dominant_v3_to_m3(normal: mathutils.Vector):
+    r_n1, r_n2 = ortho_basis_v3v3_v3(normal)
+    r_mat = mathutils.Matrix((r_n1, r_n2, normal))
+    r_mat.transpose()
+    return r_mat
+
+def cross_tri_v2(v1: Sequence[float],
+                 v2: Sequence[float],
+                 v3: Sequence[float]):
+    return (v1[0] - v2[0]) * (v2[1] - v3[1]) + (v1[1] - v2[1]) * (v3[0] - v2[0])
+
+def barycentric_weights_v2(v1: Sequence[float],
+                           v2: Sequence[float],
+                           v3: Sequence[float],
+                           co: Sequence[float]):
+    w = (cross_tri_v2(v2, v3, co),
+         cross_tri_v2(v3, v1, co),
+         cross_tri_v2(v1, v2, co))
+    wtot = w[0] + w[1] + w[2]
+
+def transform_point_by_tri_v3(pt_src: mathutils.Vector,
+                              tri_tar_p1: mathutils.Vector,
+                              tri_tar_p2: mathutils.Vector,
+                              tri_tar_p3: mathutils.Vector,
+                              tri_src_p1: mathutils.Vector,
+                              tri_src_p2: mathutils.Vector,
+                              tri_src_p3: mathutils.Vector):
+    no_tar = normal_tri_v3(tri_tar_p1, tri_tar_p2, tri_tar_p3)
+    no_src = normal_tri_v3(tri_src_p1, tri_src_p2, tri_src_p3)
+    mat_src = axis_dominant_v3_to_m3(no_src)
+    pt_src_xy = pt_src @ mat_src
+    tri_xy_src = (tri_src_p1 @ mat_src,
+                  tri_src_p2 @ mat_src,
+                  tri_src_p3 @ mat_src)
+    
 
 
 def XY(x: int, y: int, xtot: int):
