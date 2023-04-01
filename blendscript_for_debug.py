@@ -5,12 +5,10 @@ from typing import List, Optional, Tuple
 from enum import Enum
 TH = 0.00001
 TH2 = TH**2
-MAX_COUNT = 10000
 DE = "-3.2782554626464844e-07 -2.281630039215088 -0.13208013772964478:3.5762786865234375e-07 -1.5119284391403198 1.7138760089874268|-1.3113021850585938e-06 2.910860061645508 -5.257140159606934:3.0994415283203125e-06 5.783379077911377 1.631919264793396|-3.2782554626464844e-07 -2.281630039215088 -0.13208013772964478:-1.3113021850585938e-06 2.9108572006225586 -5.257140159606934:5.784740447998047 6.579355239868164 -2.426814079284668|3.5762786865234375e-07 -1.5119284391403198 1.7138760089874268:3.0994415283203125e-06 5.783379077911377 1.631919264793396:2.732125997543335 10.099564552307129 1.4211957454681396|5.784740447998047 6.579355239868164 -2.426813840866089:2.732125997543335 10.099563598632812 1.4211965799331665"
 
-def same_coords(c1: List[float], c2: List[float]) -> bool:
-    #return (c1-c2).length_squared < TH2
-    return sum((c1[i]-c2[i])**2 for i in range(3)) < TH2
+def same_coords(c1: mathutils.Vector, c2: mathutils.Vector) -> bool:
+    return (c1-c2).length_squared < TH2
 
 class StepRes(Enum):
     FINISHED = 1
@@ -18,68 +16,33 @@ class StepRes(Enum):
     PART_FINISHED = 3
 
 class BigPoint:
-    def __init__(self, red_index: int):
+    def __init__(self, i: int):
         self.points: List[Point] = []
-        self.red_index = red_index
+        self.i = i
         self.count = 0
-
-    def bpoint_get_points(self):
-        return self.points
 
     def add_point(self, point: "Point"):
         self.points.append(point)
         self.count += 1
 
-    def get_count(self):
-        return self.count
-
-    def get_points(self):
-        return self.points
-
-    def get_i(self):
-        return self.red_index
-
 
 class Point:
-    def __init__(self, red_index: int, curve: "Curve", bpoint: "BigPoint"):
-        self.parent_point: BigPoint = bpoint
-        self.red_index: int = red_index
+    def __init__(self, i: int, spline: "Spline", bpoint: "BigPoint"):
+        self.bpoint: BigPoint = bpoint
+        self.i: int = i
         self.prev_seg: Optional[Segment] = None
         self.post_seg: Optional[Segment] = None
-        self.curve: Curve = curve
-
-    def set_prev(self, s: "Segment"):
-        self.prev_seg = s
-
-    def set_post(self, s: "Segment"):
-        self.post_seg = s
-
-    def get_prev(self):
-        return self.prev_seg
-
-    def get_post(self):
-        return self.post_seg
-
-    def get_curve(self):
-        return self.curve
+        self.spline: Spline = spline
 
 
-    def get_par(self):
-        return self.parent_point
-
-    def get_i(self):
-        return self.red_index
-
-
-class Curve:
+class Spline:
     def __init__(self, glist: "GlobalList"):
         self.points: List[Point] = []
         self.segments: List[Segment] = []
         self.glist = glist
-        self.glist.add_curve(self)
+        self.glist.add_spline(self)
 
-    def add_point(self, coords: List[float]):
-        print(coords)
+    def add_point(self, coords: mathutils.Vector):
         i = 0
         added = False
         count = self.glist.get_count()
@@ -90,7 +53,6 @@ class Curve:
                 added = True
             else:
                 if same_coords(coords, self.glist.get_coords(i)):
-                    print(f"same {self.glist.get_coords(i)}")
                     bpoint = self.glist.get_bpoint(i)
                     added = True
             i += 1
@@ -102,15 +64,9 @@ class Curve:
             seg = Segment(self.points[p_num - 2], point, self.glist)
             self.segments.append(seg)
 
-    def round_curve(self):
+    def round_spline(self):
         seg = Segment(self.points[-1], self.points[0], self.glist)
         self.segments.append(seg)
-
-    def get_points(self):
-        return self.points
-
-    def get_segments(self):
-        return self.segments
 
 
 class Segment:
@@ -118,25 +74,10 @@ class Segment:
         self.quads: List[Quad] = []
         self.p1 = p1
         self.p2 = p2
-        self.p1.set_post(self)
-        self.p2.set_prev(self)
+        self.p1.post_seg = self
+        self.p2.prev_seg = self
         self.finished = False
         glist.add_segment(self)
-
-    def get_p1(self):
-        return self.p1
-
-    def get_p2(self):
-        return self.p2
-
-    def get_num_quads(self):
-        return len(self.quads)
-
-    def get_finished(self):
-        return self.finished
-
-    def set_finished(self):
-        self.finished = True
 
     def add_quad(self, quad: "Quad"):
         self.quads.append(quad)
@@ -146,8 +87,8 @@ class Segment:
 class Quad:
     @staticmethod
     def step_left(segments: List[Segment], s: Segment):
-        p1 = s.get_p1()
-        prev_seg = p1.get_prev()
+        p1 = s.p1
+        prev_seg = p1.prev_seg
         if prev_seg is None:
             return None
         if prev_seg not in segments:
@@ -156,8 +97,8 @@ class Quad:
 
     @staticmethod
     def step_right(segments: List[Segment], s: Segment):
-        p2 = s.get_p2()
-        post_seg = p2.get_post()
+        p2 = s.p2
+        post_seg = p2.post_seg
         if post_seg is None:
             return None
         if post_seg not in segments:
@@ -165,35 +106,31 @@ class Quad:
         return post_seg
 
     @staticmethod
-    def move_along_curve(segments: List[Segment], s0: Segment):
+    def move_along_spline(segments: List[Segment], s0: Segment):
         edg: List[Segment] = [s0]
         s = s0
         bps: List[BigPoint] = []
-        counter = 0
         while s is not None:
-            if counter >= MAX_COUNT:
-                raise ValueError("cycling!")
-            counter += 1
             s = Quad.step_right(segments, s)
+            if s == s0:
+                raise ValueError("cycling!")
             if s is not None:
                 edg.append(s)
-                bps.append(s.get_p1().get_par())
+                bps.append(s.p1.bpoint)
         s = s0
-        counter = 0
         while s is not None:
-            if counter >= MAX_COUNT:
-                raise ValueError("cycling!")
-            counter += 1
             s = Quad.step_left(segments, s)
+            if s == s0:
+                raise ValueError("cycling!")
             if s is not None:
                 edg = [s] + edg
-                bps = [s.get_p2().get_par()] + bps
+                bps = [s.p2.bpoint] + bps
         return edg, bps
 
     @staticmethod
     def verify_segment_connects_point(s: Segment, p: Point) -> bool:
-        for point in p.get_par().get_points():
-            if point in (s.get_p1(), s.get_p2()):
+        for point in p.bpoint.points:
+            if point in (s.p1, s.p2):
                 return True
         return False
 
@@ -203,7 +140,7 @@ class Quad:
         ret: List[Optional[Segment]] = [None, None]
         right_added = False
         left_added = False
-        points = [edges[0].get_p1(), edges[1].get_p2()]
+        points = [edges[0].p1, edges[1].p2]
         for i in range(2):
             e = edges[i]
             found = False
@@ -230,31 +167,29 @@ class Quad:
                 n += 1
         ret2 = [seg for seg in ret if seg is not None]
         assert len(ret2) == 2
-        print("neighbours1", ret2[0].p1.red_index, ret2[0].p2.red_index)
-        print("neighbours2", ret2[1].p1.red_index, ret2[1].p2.red_index)
         return ret2
 
     @staticmethod
     def steps_dividing_edges_right(p: Point, n: int):
         for _ in range(n):
-            p_post = p.get_post()
+            p_post = p.post_seg
             if p_post is None:
                 return None
-            p = p_post.get_p2()
-        return p.get_par()
+            p = p_post.p2
+        return p.bpoint
 
     @staticmethod
     def steps_dividing_edges_left(p: Point, n: int):
         for _ in range(n):
-            p_prev = p.get_prev()
+            p_prev = p.prev_seg
             if p_prev is None:
                 return None
-            p = p_prev.get_p1()
-        return p.get_par()
+            p = p_prev.p1
+        return p.bpoint
 
     @staticmethod
     def verify_dividing_edges(bp1: BigPoint, bp2: BigPoint, n: int):
-        for p in bp1.get_points():
+        for p in bp1.points:
             s1 = Quad.steps_dividing_edges_right(p, n)
             if s1 is not None:
                 if s1 == bp2:
@@ -267,9 +202,9 @@ class Quad:
 
     @staticmethod
     def get_dir_from_right(edg: List[Segment], segments: List[Segment]):
-        bp = edg[-1].get_p2().get_par()
-        for p in bp.get_points():
-            post = p.get_post()
+        bp = edg[-1].p2.bpoint
+        for p in bp.points:
+            post = p.post_seg
             if post is not None:
                 if post in segments:
                     return True
@@ -277,9 +212,9 @@ class Quad:
 
     @staticmethod
     def get_dir_from_left(edg: List[Segment], segments:List[Segment]):
-        bp = edg[0].get_p1().get_par()
-        for p in bp.get_points():
-            prev = p.get_prev()
+        bp = edg[0].p1.bpoint
+        for p in bp.points:
+            prev = p.prev_seg
             if prev is not None:
                 if prev in segments:
                     return True
@@ -287,10 +222,6 @@ class Quad:
 
     @staticmethod
     def verify_div(b1: List[BigPoint], b2: List[BigPoint], dir1: bool, dir2: bool, n: int):
-        for b in b1:
-            print("b1", b.red_index)
-        for b in b2:
-            print("b2", b.red_index)
         for i in range(len(b1)):
             if dir1 != dir2:
                 if Quad.verify_dividing_edges(b1[i], b2[i], n):
@@ -308,12 +239,12 @@ class Quad:
         if (le % 2) == 1:
             return False
         for segment in segments:
-            if segment.get_finished():
+            if segment.finished:
                 return False
-        edg1, b1 = Quad.move_along_curve(segments, segments[0])
+        edg1, b1 = Quad.move_along_spline(segments, segments[0])
         ret = Quad.get_neighbours(segments, edg1)
-        edg2, b2 = Quad.move_along_curve(segments, ret[1])
-        edg4, b4 = Quad.move_along_curve(segments, ret[0])
+        edg2, b2 = Quad.move_along_spline(segments, ret[1])
+        edg4, b4 = Quad.move_along_spline(segments, ret[0])
         if len(edg2) != len(edg4):
             return False
         if le - len(edg2)*2 != len(edg1)*2:
@@ -323,7 +254,7 @@ class Quad:
             seg = ret[0]
         else:
             seg = ret[1]
-        edg3, b3 = Quad.move_along_curve(segments, seg)
+        edg3, b3 = Quad.move_along_spline(segments, seg)
         if le != len(edg1) + len(edg2) + len(edg3) + len(edg4):
             return False
         dir1 = True
@@ -333,12 +264,9 @@ class Quad:
             dir3 = Quad.get_dir_from_right(edg2, segments)
         else:
             dir3 = not Quad.get_dir_from_left(edg2, segments)
-        if Quad.verify_div(b1, b3, dir1, dir3, len(edg2)) or\
-           Quad.verify_div(b2, b4, dir2, dir4, len(edg1)):
-            print("div")
+        if Quad.verify_div(b1, b3, dir1, dir3, len(edg2)) or Quad.verify_div(b2, b4, dir2, dir4, len(edg1)):
             return False
         Quad(edg1, edg2, edg3, edg4, dir1, dir2, dir3, dir4, glist)
-        print("created quad")
         return True
 
     def add_quad_to_edge(self, edg: List[Segment]):
@@ -399,14 +327,14 @@ class Quad:
 
 class GlobalList:
     def __init__(self):
-        self.reduced_points: List[List[float]] = []
+        self.reduced_points: List[mathutils.Vector] = []
         self.big_points: List[BigPoint] = []
         self.count = 0
-        self.curves: List[Curve] = []
+        self.splines: List[Spline] = []
         self.quads: List[Quad] = []
         self.segments: List[Segment] = []
 
-    def create_bpoint(self, coords: List[float]):
+    def create_bpoint(self, coords: mathutils.Vector):
         self.reduced_points.append(coords)
         bpoint = BigPoint(self.count)
         self.big_points.append(bpoint)
@@ -422,11 +350,11 @@ class GlobalList:
     def get_bpoint(self, i: int):
         return self.big_points[i]
 
-    def add_curve(self, curve: Curve):
-        self.curves.append(curve)
+    def add_spline(self, spline: Spline):
+        self.splines.append(spline)
 
-    def get_curves(self):
-        return self.curves
+    def get_splines(self):
+        return self.splines
 
     def add_segment(self, segment: Segment):
         self.segments.append(segment)
@@ -435,70 +363,71 @@ class GlobalList:
         self.quads.append(quad)
 
     def work_with_segment(self, segment: Segment):
-        initial_curve = segment.get_p1().get_curve()
         segments_verified = [segment]
         bpoints_verified: List[BigPoint] = []
-        counter_curves = 1
-        prev_curve = segment.get_p1().get_curve()
-        initial_curve = prev_curve
-        initial_bpoint = segment.get_p1().get_par()
-        self.edge_step(initial_bpoint, segment.get_p2(), segments_verified, bpoints_verified, counter_curves, prev_curve, initial_curve, True)
-        segment.set_finished()
+        counter_splines = 1
+        prev_spline = segment.p1.spline
+        initial_spline = prev_spline
+        initial_bpoint = segment.p1.bpoint
+        self.edge_step(initial_bpoint, segment.p2, segments_verified, bpoints_verified, counter_splines, prev_spline, initial_spline, True)
+        segment.finished = True
 
     def edge_step(self,
                   initial_bpoint: BigPoint,
                   point: Point,
                   segments_verified: List[Segment],
                   bpoints_verified: List[BigPoint],
-                  counter_curves: int,
-                  prev_curve: Curve,
-                  initial_curve: Curve,
+                  counter_splines: int,
+                  prev_spline: Spline,
+                  initial_spline: Spline,
                   first: bool) -> StepRes:
-        print(point.red_index, initial_bpoint.red_index)
-        bpoint = point.get_par()
-        curve = point.get_curve()
-        if curve != prev_curve:
-            counter_curves += 1
-            if counter_curves > 5:
+        bpoint = point.bpoint
+        spline = point.spline
+        if spline != prev_spline:
+            counter_splines += 1
+            first = False
+            if counter_splines > 5:
                 return StepRes.NOT_FINISHED
-            if counter_curves == 5 and curve != initial_curve:
+            if counter_splines == 5 and spline != initial_spline:
                 return StepRes.NOT_FINISHED
         if initial_bpoint == bpoint:
+            if counter_splines < 4:
+                return StepRes.NOT_FINISHED
             if Quad.verify_and_init(segments_verified, self):
-                if  segments_verified[0].get_finished():
+                if segments_verified[0].finished:
                     return StepRes.FINISHED
                 return StepRes.PART_FINISHED
         if bpoint in bpoints_verified:
             return StepRes.NOT_FINISHED
-        bv = bpoints_verified[:]
-        bv.append(bpoint)
-        for point in bpoint.get_points():
-            sv = segments_verified[:]
-            segment1 = point.get_prev()
+        bpoints_verified.append(bpoint)
+        for point in bpoint.points:
+            segment1 = point.prev_seg
             res = self.step_segment(initial_bpoint,
                                     segment1,
                                     True,
-                                    sv,
-                                    bv,
-                                    counter_curves,
-                                    curve,
-                                    initial_curve,
+                                    segments_verified,
+                                    bpoints_verified,
+                                    counter_splines,
+                                    spline,
+                                    initial_spline,
                                     first)
             if res in (StepRes.FINISHED, StepRes.PART_FINISHED):
+                bpoints_verified.pop()
                 return res
-            sv = segments_verified[:]
-            segment2 = point.get_post()
+            segment2 = point.post_seg
             res = self.step_segment(initial_bpoint,
                                     segment2,
                                     False,
-                                    sv,
-                                    bv,
-                                    counter_curves,
-                                    curve,
-                                    initial_curve,
+                                    segments_verified,
+                                    bpoints_verified,
+                                    counter_splines,
+                                    spline,
+                                    initial_spline,
                                     first)
             if res in (StepRes.FINISHED, StepRes.PART_FINISHED):
+                bpoints_verified.pop()
                 return res
+        bpoints_verified.pop()
         return StepRes.NOT_FINISHED
 
     def step_segment(self,
@@ -507,16 +436,18 @@ class GlobalList:
                      is_p1: bool,
                      sv: List[Segment],
                      bv: List[BigPoint],
-                     counter_curves: int,
-                     curve: Curve,
-                     initial_curve: Curve,
+                     counter_splines: int,
+                     spline: Spline,
+                     initial_spline: Spline,
                      first: bool) -> StepRes:
         if segment is not None:
             if not segment in sv:
-                if not segment.get_finished():
+                if not segment.finished:
                     sv.append(segment)
-                    point = segment.get_p1() if is_p1 else segment.get_p2()
-                    match self.edge_step(initial_bpoint, point, sv, bv, counter_curves, curve, initial_curve, False):
+                    point = segment.p1 if is_p1 else segment.p2
+                    res = self.edge_step(initial_bpoint, point, sv, bv, counter_splines, spline, initial_spline, first)
+                    sv.pop()
+                    match res:
                         case StepRes.FINISHED: 
                             return StepRes.FINISHED
                         case StepRes.PART_FINISHED:
@@ -528,8 +459,7 @@ class GlobalList:
 
     def add_quads(self):
         for segment in self.segments:
-            print("segment_start", segment.p1.red_index, segment.p2.red_index, segment.finished)
-            if not segment.get_finished():
+            if not segment.finished:
                 self.work_with_segment(segment)
 
     '''def search_vert(self, bm: bmesh.types.BMesh, point: Point) -> bmesh.types.BMVert:
@@ -567,18 +497,18 @@ class GlobalList:
 glist = GlobalList()
 
 '''active = bpy.context.active_object
-cur = active.to_curve(bpy.context.evaluated_depsgraph_get())
+cur = active.to_spline(bpy.context.evaluated_depsgraph_get())
 nedges = cur.resolution_u
 splines = cur.splines
 mat = active.matrix_world'''
 nedges = 16
 
 '''for s in splines:
-    curve = Curve(glist)
+    spline = Spline(glist)
     for p in s.bezier_points:
-        curve.add_point(mat @ p.co)
+        spline.add_point(mat @ p.co)
     if s.use_cyclic_u:
-        curve.round_curve'''
+        spline.round_spline'''
 '''ss = []
 for s in splines:
     cos = []
@@ -590,15 +520,15 @@ raise ValueError(DE)
 '''
 
 for s in DE.split("|"):
-    curve = Curve(glist)
+    spline = Spline(glist)
     for p in s.split(":"):
         co = [float(aa) for aa in p.split(" ")]
-        curve.add_point(co)
+        spline.add_point(co)
     #if s.use_cyclic_u:
-        #curve.round_curve
-for curve in glist.curves:
-    print("curve")
-    for point in curve.points:
+        #spline.round_spline
+for spline in glist.splines:
+    print("spline")
+    for point in spline.points:
         print(point.red_index)
 glist.add_quads()
 for quad in glist.quads:
