@@ -503,8 +503,8 @@ def work_with_mesh(glist: GlobalList, active: bpy.types.Object, nedges: int):
     bpy.context.collection.objects.link(obj)
 
 
-class CreateSurfacesBetweenSplines(bpy.types.Operator):
-    """My Creating Surfaces Between Splines Script"""      # Use this as a tooltip for menu items and buttons.
+class CreateSurfacesBetweenCurves(bpy.types.Operator):
+    """My Creating Surfaces Between Curves Script"""      # Use this as a tooltip for menu items and buttons.
     bl_idname = "object.create_surfs"        # Unique identifier for buttons and menu items to reference.
     bl_label = "Create surfaces"         # Display name in the interface.
     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
@@ -514,7 +514,7 @@ class CreateSurfacesBetweenSplines(bpy.types.Operator):
         glist = GlobalList()
 
         active = context.active_object
-        cur = active.to_curve(bpy.context.evaluated_depsgraph_get())
+        cur = active.data
         nedges = cur.resolution_u
         splines = cur.splines
 
@@ -530,14 +530,14 @@ class CreateSurfacesBetweenSplines(bpy.types.Operator):
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
 
 def menu_func(self, context):
-    self.layout.operator(CreateSurfacesBetweenSplines.bl_idname)
+    self.layout.operator(CreateSurfacesBetweenCurves.bl_idname)
 
 def register():
-    bpy.utils.register_class(CreateSurfacesBetweenSplines)
+    bpy.utils.register_class(CreateSurfacesBetweenCurves)
     bpy.types.VIEW3D_MT_object.append(menu_func)  # Adds the new operator to an existing menu.
 
 def unregister():
-    bpy.utils.unregister_class(CreateSurfacesBetweenSplines)
+    bpy.utils.unregister_class(CreateSurfacesBetweenCurves)
 
 
 # This allows you to run the script directly from Blender's Text editor
