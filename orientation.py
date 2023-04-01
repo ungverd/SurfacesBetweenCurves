@@ -1,7 +1,6 @@
 from typing import List, Literal
 import bpy
 import mathutils
-import time
 
 def verify_selection(cur: bpy.types.Curve) -> Literal[False] | List[bpy.types.BezierSplinePoint]:
     points = [p for s in cur.splines for p in s.bezier_points if p.select_control_point]
@@ -41,10 +40,11 @@ class CreateCoordsFromHandles(bpy.types.Operator):
         vec3.normalize()
         rotation = mathutils.Vector((0,0,1)).rotation_difference(vec3)
         position = points[0].co + vec3
-        camera_matrix = mathutils.Matrix.LocRotScale(position, rotation, None)
-        camera_matrix.invert()
-        space.region_3d.view_matrix = camera_matrix
-        bpy.ops.transform.create_orientation(name="handles", use_view=True, use=True, overwrite=False)
+        view_matrix = mathutils.Matrix.LocRotScale(position, rotation, None)
+        view_matrix.invert()
+        space.region_3d.view_matrix = view_matrix
+        bpy.ops.transform.create_orientation(name="handles", use=True)
+        context.scene.transform_orientation_slots[0].custom_orientation.matrix = rotation.to_matrix()
 
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
 
