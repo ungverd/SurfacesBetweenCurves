@@ -508,7 +508,10 @@ for s in splines:
     cos = []
     for p in s.bezier_points:
         cos.append(" ".join(f"{c}" for c in p.co))
-    ss.append(":".join(cos))
+    co = ":".join(cos)
+    if s.use_cyclic_u:
+        co += "r"
+    ss.append(co)
 DE = "|".join(ss)
 raise ValueError(DE)
 glist.add_quads()
