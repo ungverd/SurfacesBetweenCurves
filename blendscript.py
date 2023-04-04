@@ -8,7 +8,7 @@ bl_info = {
 import bpy
 import bmesh
 import mathutils
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Callable
 from enum import Enum
 TH = 0.00001
 TH2 = TH**2
@@ -207,6 +207,71 @@ class Quad:
         return False
 
     @staticmethod
+    def turn(p: Point):
+        for pp in p.bpoint.points:
+            if pp != p:
+                yield pp
+
+    @staticmethod
+    def little_quads_step_left(p: Point):
+        if p.prev_seg:
+            return p.prev_seg.p1
+        return None
+
+    @staticmethod
+    def little_quads_step_right(p: Point):
+        if p.post_seg:
+            return p.post_seg.p2
+        return None
+
+    @staticmethod
+    def step(p: Point,
+            func: Callable[[Point], Optional[Point]],
+            s1: int,
+            s2: int,
+            bp_s1: BigPoint,
+            bp_s2: BigPoint) -> bool | Point:
+        res = func(p)
+        if res:
+            for pp in Quad.turn(p):
+                for s, bp in zip((s1, s2), (bp_s1, bp_s2)):
+                    if s != 0:
+                        for f in (Quad.steps_dividing_edges_left, Quad.steps_dividing_edges_right):
+                            if f(pp, s) == bp:
+                                return True
+            return res
+        return False
+
+    @staticmethod
+    def steps(p: Point,
+              n: int,
+              end_bps_s1: List[BigPoint],
+              end_bps_s2: List[BigPoint],
+              s1: int,
+              s2: int,
+              func: Callable[[Point], Optional[Point]]) -> bool:
+        res = p
+        for i in range(n):
+            if i != (n - 1) or (s1 != 0 and s2 != 0):
+                res = Quad.step(res, func, s1, s2, end_bps_s1[i], end_bps_s2[i])
+                if res in (True, False):
+                    return res
+        return False
+
+    @staticmethod
+    def verify_little_quads(p1: Point,
+                            end_bps_s1: List[BigPoint],
+                            end_bps_s2: List[BigPoint],
+                            s1: int,
+                            s2: int,
+                            n: int):
+        for p in Quad.turn(p1):
+            for func in (Quad.little_quads_step_left, Quad.little_quads_step_right):
+                if Quad.steps(p, n, end_bps_s1, end_bps_s2, s1, s2, func):
+                    return True
+        return False
+
+    @staticmethod
     def get_dir_from_right(edg: List[Segment], segments: List[Segment]):
         bp = edg[-1].p2.bpoint
         for p in bp.points:
@@ -236,6 +301,20 @@ class Quad:
                 if Quad.verify_dividing_edges(b1[i], b2[-i-1], n):
                     return True
         return False
+
+    @staticmethod
+    def extract_points(edge: List[Segment], dir: bool) -> List[Point]:
+        points: List[Point] = []
+        if edge:
+            if dir:
+                points = [edge[0].p1]
+                points.extend([seg.p2 for seg in edge])
+            else:
+                points = [edge[-1].p2]
+                edge = edge[:]
+                edge.reverse()
+                points.extend([seg.p1 for seg in edge])
+        return points
 
     @staticmethod
     def verify_and_init(segments: List[Segment], glist: "GlobalList") -> bool:
@@ -271,6 +350,32 @@ class Quad:
         else:
             dir3 = not Quad.get_dir_from_left(edg2, segments)
         if Quad.verify_div(b1, b3, dir1, dir3, len(edg2)) or Quad.verify_div(b2, b4, dir2, dir4, len(edg1)):
+            return False
+        points1 = Quad.extract_points(edg1, True)
+        points2 = Quad.extract_points(edg2, dir2)
+        bpoints2 = [p.bpoint for p in points2]
+        points3 = Quad.extract_points(edg3, not dir3)
+        points4 = Quad.extract_points(edg4, not dir4)
+        bpoints4 = [p.bpoint for p in points4]
+        le = len(edg1)
+        n = len(edg2)
+        for i, p in enumerate(points1):
+            if Quad.verify_little_quads(p, bpoints4[1:], bpoints2[1:], i, le - i, n):
+                return False
+        if Quad.steps(points1[0], n, bpoints2[1:], bpoints2[1:], le, 0, Quad.little_quads_step_left):
+            return False
+        if Quad.steps(points1[-1], n, bpoints4[1:], bpoints4[1:], le, 0, Quad.little_quads_step_right):
+            return False
+        bpoints2.reverse()
+        bpoints4.reverse()
+        for i, p in enumerate(points3):
+            if Quad.verify_little_quads(p, bpoints4[1:], bpoints2[1:], i, le - i, n):
+                return False
+        if Quad.steps(points3[0], n, bpoints2[1:], bpoints2[1:], le, 0,
+                      Quad.little_quads_step_right if dir3 else Quad.little_quads_step_left):
+            return False
+        if Quad.steps(points3[-1], n, bpoints4[1:], bpoints4[1:], le, 0,
+                      Quad.little_quads_step_left if dir3 else Quad.little_quads_step_right):
             return False
         Quad(edg1, edg2, edg3, edg4, dir1, dir2, dir3, dir4, glist)
         return True

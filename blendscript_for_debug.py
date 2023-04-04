@@ -1,14 +1,14 @@
 #import bpy
 #import bmesh
-#import mathutils
-from typing import List, Optional, Tuple
+import mathutils
+from typing import List, Optional, Tuple, Callable
 from enum import Enum
 TH = 0.00001
 TH2 = TH**2
-DE = "-0.8723616600036621 0.26151105761528015 0.053959429264068604:-0.6585542559623718 0.4134708642959595 0.7191587686538696:-0.43076229095458984 0.4635526239871979 1.3077678680419922|0.8723616600036621 -0.26151105761528015 0.053959429264068604:0.6585542559623718 -0.4134708642959595 0.7191587686538696:0.43076229095458984 -0.4635526239871979 1.3077678680419922|0.8723616600036621 -0.26151105761528015 0.053959429264068604:0.27402931451797485 -0.23184210062026978 -0.055906593799591064:0.27402931451797485 0.23184210062026978 -0.055906593799591064:0.8723616600036621 0.26151105761528015 0.053959429264068604r|0.6585542559623718 -0.4134708642959595 0.7191587686538696:0.1534704864025116 -0.2502543032169342 0.3373539447784424:0.1534704864025116 0.2502543032169342 0.3373539447784424:0.6585542559623718 0.4134708642959595 0.7191587686538696|-0.27402931451797485 0.23184210062026978 -0.055906593799591064:-0.1534704864025116 0.2502543032169342 0.3373539447784424:0.1534704864025116 0.2502543032169342 0.3373539447784424:0.27402931451797485 0.23184210062026978 -0.055906593799591064|0.8723616600036621 0.26151105761528015 0.053959429264068604:0.6585542559623718 0.4134708642959595 0.7191587686538696:0.43076229095458984 0.4635526239871979 1.3077678680419922|0.6585542559623718 -0.4134708642959595 0.7191587686538696:-0.6585542559623718 -0.4134708642959595 0.7191587686538696:-0.6585542559623718 0.4134708642959595 0.7191587686538696:0.6585542559623718 0.4134708642959595 0.7191587686538696r|-0.8723616600036621 0.26151105761528015 0.053959429264068604:-0.27402931451797485 0.23184210062026978 -0.055906593799591064:-0.27402931451797485 -0.23184210062026978 -0.055906593799591064:-0.8723616600036621 -0.26151105761528015 0.053959429264068604r|-0.6585542559623718 0.4134708642959595 0.7191587686538696:-0.1534704864025116 0.2502543032169342 0.3373539447784424:-0.1534704864025116 -0.2502543032169342 0.3373539447784424:-0.6585542559623718 -0.4134708642959595 0.7191587686538696|0.27402931451797485 -0.23184210062026978 -0.055906593799591064:0.1534704864025116 -0.2502543032169342 0.3373539447784424:-0.1534704864025116 -0.2502543032169342 0.3373539447784424:-0.27402931451797485 -0.23184210062026978 -0.055906593799591064|-0.8723616600036621 -0.26151105761528015 0.053959429264068604:-0.6585542559623718 -0.4134708642959595 0.7191587686538696:-0.43076229095458984 -0.4635526239871979 1.3077678680419922|-0.43076229095458984 0.4635526239871979 1.3077678680419922:0.43076229095458984 0.4635526239871979 1.3077678680419922:0.43076229095458984 -0.4635526239871979 1.3077678680419922:-0.43076229095458984 -0.4635526239871979 1.3077678680419922r"
+DE = "-0.8723616600036621 0.26151105761528015 0.053959429264068604:-0.6585542559623718 0.4134708642959595 0.7191587686538696:-0.43076229095458984 0.4635526239871979 1.3077678680419922|0.8723616600036621 -0.26151105761528015 0.053959429264068604:0.6585542559623718 -0.4134708642959595 0.7191587686538696:0.43076229095458984 -0.4635526239871979 1.3077678680419922|-0.43076229095458984 -0.4635526239871979 1.3077678680419922:-0.43076229095458984 0.4635526239871979 1.3077678680419922:0.43076229095458984 0.4635526239871979 1.3077678680419922:0.43076229095458984 -0.4635526239871979 1.3077678680419922r|0.8723616600036621 -0.26151105761528015 0.053959429264068604:0.27402931451797485 -0.23184210062026978 -0.055906593799591064:0.27402931451797485 0.23184210062026978 -0.055906593799591064:0.8723616600036621 0.26151105761528015 0.053959429264068604r|0.6585542559623718 -0.4134708642959595 0.7191587686538696:0.1534704864025116 -0.2502543032169342 0.3373539447784424:0.1534704864025116 0.2502543032169342 0.3373539447784424:0.6585542559623718 0.4134708642959595 0.7191587686538696|-0.27402931451797485 0.23184210062026978 -0.055906593799591064:-0.1534704864025116 0.2502543032169342 0.3373539447784424:0.1534704864025116 0.2502543032169342 0.3373539447784424:0.27402931451797485 0.23184210062026978 -0.055906593799591064|0.8723616600036621 0.26151105761528015 0.053959429264068604:0.6585542559623718 0.4134708642959595 0.7191587686538696:0.43076229095458984 0.4635526239871979 1.3077678680419922|0.6585542559623718 -0.4134708642959595 0.7191587686538696:-0.6585542559623718 -0.4134708642959595 0.7191587686538696:-0.6585542559623718 0.4134708642959595 0.7191587686538696:0.6585542559623718 0.4134708642959595 0.7191587686538696r|-0.8723616600036621 0.26151105761528015 0.053959429264068604:-0.27402931451797485 0.23184210062026978 -0.055906593799591064:-0.27402931451797485 -0.23184210062026978 -0.055906593799591064:-0.8723616600036621 -0.26151105761528015 0.053959429264068604r|-0.6585542559623718 0.4134708642959595 0.7191587686538696:-0.1534704864025116 0.2502543032169342 0.3373539447784424:-0.1534704864025116 -0.2502543032169342 0.3373539447784424:-0.6585542559623718 -0.4134708642959595 0.7191587686538696|0.27402931451797485 -0.23184210062026978 -0.055906593799591064:0.1534704864025116 -0.2502543032169342 0.3373539447784424:-0.1534704864025116 -0.2502543032169342 0.3373539447784424:-0.27402931451797485 -0.23184210062026978 -0.055906593799591064|-0.8723616600036621 -0.26151105761528015 0.053959429264068604:-0.6585542559623718 -0.4134708642959595 0.7191587686538696:-0.43076229095458984 -0.4635526239871979 1.3077678680419922"
 
-def same_coords(c1: mathutils.Vector, c2: mathutils.Vector) -> bool:
-    return (c1-c2).length_squared < TH2
+def same_coords(c1: List[float], c2: List[float]) -> bool:
+    return sum((c1[i] - c2[i]) ** 2 for i in range(3)) < TH2
 
 class StepRes(Enum):
     FINISHED = 1
@@ -201,6 +201,71 @@ class Quad:
         return False
 
     @staticmethod
+    def turn(p: Point):
+        for pp in p.bpoint.points:
+            if pp != p:
+                yield pp
+
+    @staticmethod
+    def little_quads_step_left(p: Point):
+        if p.prev_seg:
+            return p.prev_seg.p1
+        return None
+
+    @staticmethod
+    def little_quads_step_right(p: Point):
+        if p.post_seg:
+            return p.post_seg.p2
+        return None
+
+    @staticmethod
+    def step(p: Point,
+            func: Callable[[Point], Optional[Point]],
+            s1: int,
+            s2: int,
+            bp_s1: BigPoint,
+            bp_s2: BigPoint) -> bool | Point:
+        res = func(p)
+        if res:
+            for pp in Quad.turn(res):
+                for s, bp in zip((s1, s2), (bp_s1, bp_s2)):
+                    if s != 0:
+                        for f in (Quad.steps_dividing_edges_left, Quad.steps_dividing_edges_right):
+                            if f(pp, s) == bp:
+                                return True
+            return res
+        return False
+
+    @staticmethod
+    def steps(p: Point,
+              n: int,
+              end_bps_s1: List[BigPoint],
+              end_bps_s2: List[BigPoint],
+              s1: int,
+              s2: int,
+              func: Callable[[Point], Optional[Point]]) -> bool:
+        res = p
+        for i in range(n):
+            if i != (n - 1) or (s1 != 0 and s2 != 0):
+                res = Quad.step(res, func, s1, s2, end_bps_s1[i], end_bps_s2[i])
+                if res in (True, False):
+                    return res
+        return False
+
+    @staticmethod
+    def verify_little_quads(p1: Point,
+                            end_bps_s1: List[BigPoint],
+                            end_bps_s2: List[BigPoint],
+                            s1: int,
+                            s2: int,
+                            n: int) -> bool:
+        for p in Quad.turn(p1):
+            for func in (Quad.little_quads_step_left, Quad.little_quads_step_right):
+                if Quad.steps(p, n, end_bps_s1, end_bps_s2, s1, s2, func):
+                    return True
+        return False
+
+    @staticmethod
     def get_dir_from_right(edg: List[Segment], segments: List[Segment]):
         bp = edg[-1].p2.bpoint
         for p in bp.points:
@@ -230,6 +295,20 @@ class Quad:
                 if Quad.verify_dividing_edges(b1[i], b2[-i-1], n):
                     return True
         return False
+
+    @staticmethod
+    def extract_points(edge: List[Segment], dir: bool) -> List[Point]:
+        points: List[Point] = []
+        if edge:
+            if dir:
+                points = [edge[0].p1]
+                points.extend([seg.p2 for seg in edge])
+            else:
+                points = [edge[-1].p2]
+                edge = edge[:]
+                edge.reverse()
+                points.extend([seg.p1 for seg in edge])
+        return points
 
     @staticmethod
     def verify_and_init(segments: List[Segment], glist: "GlobalList") -> bool:
@@ -265,6 +344,32 @@ class Quad:
         else:
             dir3 = not Quad.get_dir_from_left(edg2, segments)
         if Quad.verify_div(b1, b3, dir1, dir3, len(edg2)) or Quad.verify_div(b2, b4, dir2, dir4, len(edg1)):
+            return False
+        points1 = Quad.extract_points(edg1, True)
+        points2 = Quad.extract_points(edg2, dir2)
+        bpoints2 = [p.bpoint for p in points2]
+        points3 = Quad.extract_points(edg3, not dir3)
+        points4 = Quad.extract_points(edg4, not dir4)
+        bpoints4 = [p.bpoint for p in points4]
+        le = len(edg1)
+        n = len(edg2)
+        for i, p in enumerate(points1):
+            if Quad.verify_little_quads(p, bpoints4[1:], bpoints2[1:], i, le - i, n):
+                return False
+        if Quad.steps(points1[0], n, bpoints2[1:], bpoints2[1:], le, 0, Quad.little_quads_step_left):
+            return False
+        if Quad.steps(points1[-1], n, bpoints4[1:], bpoints4[1:], le, 0, Quad.little_quads_step_right):
+            return False
+        bpoints2.reverse()
+        bpoints4.reverse()
+        for i, p in enumerate(points3):
+            if Quad.verify_little_quads(p, bpoints4[1:], bpoints2[1:], i, le - i, n):
+                return False
+        if Quad.steps(points3[0], n, bpoints2[1:], bpoints2[1:], le, 0,
+                      Quad.little_quads_step_right if dir3 else Quad.little_quads_step_left):
+            return False
+        if Quad.steps(points3[-1], n, bpoints4[1:], bpoints4[1:], le, 0,
+                      Quad.little_quads_step_left if dir3 else Quad.little_quads_step_right):
             return False
         Quad(edg1, edg2, edg3, edg4, dir1, dir2, dir3, dir4, glist)
         return True
@@ -524,16 +629,28 @@ for s in DE.split("|"):
     cyclic = s[-1] == "r"
     if cyclic:
         s = s[:-1]
+        #print("r")
     for p in s.split(":"):
         co = [float(aa) for aa in p.split(" ")]
         spline.add_point(co)
     if cyclic:
-        spline.round_spline
-for spline in glist.splines:
+        spline.round_spline()
+'''for spline in glist.splines:
     print(f"spline len {len(spline.segments)}")
     for point in spline.points:
-        print(point.i)
+        print(point.i)'''
 glist.add_quads()
 for quad in glist.quads:
-    print("quad!!!")
+    print(f"quad {[[(seg.p1.i, seg.p2.i) for seg in edge] for edge in quad.edges]}")
 #work_with_mesh(glist, active, nedges)
+
+'''Python: Traceback (most recent call last):
+  File "/home/eka/threeD/minjue/orientation.blend/blendscript.py", line 636, in execute
+ValueError: quad [[(0, 1)], [(16, 1)], [(18, 16)], [(18, 0)]]
+quad [[(0, 1)], [(1, 13), (13, 4), (4, 16)], [(18, 16)], [(0, 14), (14, 17), (17, 18)]]
+quad [[(1, 2)], [(5, 6), (6, 2)], [(4, 5)], [(1, 13), (13, 4)]]
+quad [[(1, 2)], [(2, 7), (7, 5)], [(4, 5)], [(4, 16), (16, 1)]]
+quad [[(3, 4)], [(4, 11), (11, 12)], [(12, 9)], [(9, 10), (10, 3)]]
+quad [[(10, 3), (3, 8)], [(8, 11)], [(11, 12), (12, 13)], [(10, 13)]]
+quad [[(9, 10)], [(10, 13)], [(12, 13)], [(12, 9)]]
+quad [[(14, 15)], [(15, 19)], [(19, 17)], [(14, 17)]]'''
