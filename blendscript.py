@@ -602,6 +602,14 @@ class GlobalList:
             res = bmesh.ops.grid_fill(bm, edges=e[0])
             if len(res["faces"]) == 0:
                 res = bmesh.ops.grid_fill(bm, edges=e[1])
+                if len(res["faces"]) == 0:
+                    ret = bmesh.ops.duplicate(bm, geom = e[1]+e[0])
+                    geom_dupe = ret["geom"]
+                    edges_dupe = [ele for ele in geom_dupe if isinstance(ele, bmesh.types.BMEdge)]
+                    pairs_e0 = [(ed.verts[0].co, ed.verts[1].co) for ed in e[0]]
+                    edges_dupe_e0 = [ed for ed in edges_dupe if (ed.verts[0].co, ed.verts[1].co) in pairs_e0]
+                    bmesh.ops.grid_fill(bm, edges=edges_dupe_e0)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=TH)
 
 def work_with_mesh(glist: GlobalList, active: bpy.types.Object, nedges: int):
     rotation = active.rotation_euler
