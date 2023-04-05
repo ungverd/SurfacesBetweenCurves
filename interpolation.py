@@ -1,5 +1,6 @@
 import mathutils
-from typing import List, Sequence
+from typing import List
+import math
 
 def quad_edges_to_normal(co_a1: mathutils.Vector,
                          co_a2: mathutils.Vector,
@@ -61,19 +62,39 @@ def axis_dominant_v3_to_m3(normal: mathutils.Vector):
     r_mat.transpose()
     return r_mat
 
-def cross_tri_v2(v1: Sequence[float],
-                 v2: Sequence[float],
-                 v3: Sequence[float]):
+def cross_tri_v2(v1: mathutils.Vector,
+                 v2: mathutils.Vector,
+                 v3: mathutils.Vector):
     return (v1[0] - v2[0]) * (v2[1] - v3[1]) + (v1[1] - v2[1]) * (v3[0] - v2[0])
 
-def barycentric_weights_v2(v1: Sequence[float],
-                           v2: Sequence[float],
-                           v3: Sequence[float],
-                           co: Sequence[float]):
-    w = (cross_tri_v2(v2, v3, co),
-         cross_tri_v2(v3, v1, co),
-         cross_tri_v2(v1, v2, co))
+def barycentric_weights_v2(v1: mathutils.Vector,
+                           v2: mathutils.Vector,
+                           v3: mathutils.Vector,
+                           co: mathutils.Vector):
+    w = mathutils.Vector((cross_tri_v2(v2, v3, co),
+                          cross_tri_v2(v3, v1, co),
+                          cross_tri_v2(v1, v2, co)))
     wtot = w[0] + w[1] + w[2]
+    if wtot != 0:
+        w *= (1 / wtot)
+    else:
+        w = mathutils.Vector((1/3, 1/3, 1/3))
+    return w
+
+def interp_v3_v3v3v3(v1: mathutils.Vector,
+                     v2: mathutils.Vector,
+                     v3: mathutils.Vector,
+                     w: mathutils.Vector):
+    return mathutils.Vector((
+        v1[0] * w[0] + v2[0] * w[1] + v3[0] * w[2],
+        v1[1] * w[0] + v2[1] * w[1] + v3[1] * w[2],
+        v1[2] * w[0] + v2[2] * w[1] + v3[2] * w[2]))
+
+def interp_v3_v3v3(a: mathutils.Vector,
+                   b: mathutils.Vector,
+                   t: float):
+    s = 1 - t
+    return s * a + t * b
 
 def transform_point_by_tri_v3(pt_src: mathutils.Vector,
                               tri_tar_p1: mathutils.Vector,
@@ -89,8 +110,12 @@ def transform_point_by_tri_v3(pt_src: mathutils.Vector,
     tri_xy_src = (tri_src_p1 @ mat_src,
                   tri_src_p2 @ mat_src,
                   tri_src_p3 @ mat_src)
-    
-
+    w_src = barycentric_weights_v2(tri_xy_src[0], tri_xy_src[1], tri_xy_src[2], pt_src_xy)
+    pt_tar = interp_v3_v3v3v3(tri_tar_p1, tri_tar_p2, tri_tar_p3, w_src)
+    area_tar = math.sqrt(mathutils.geometry.area_tri(tri_tar_p1, tri_tar_p2, tri_tar_p3))
+    area_src = math.sqrt(mathutils.geometry.area_tri(tri_xy_src[0], tri_xy_src[1], tri_xy_src[2]))
+    z_ofs_src = pt_src_xy[2] - tri_xy_src[0][2]
+    return pt_tar + no_tar * (z_ofs_src / area_src) * area_tar
 
 def XY(x: int, y: int, xtot: int):
     return x + y * xtot
@@ -135,4 +160,20 @@ def grid_fill(verts1: List[mathutils.Vector],
             True
         )
         for x in range(1, xtot-1):
-
+            co_a = transform_point_by_tri_v3(v_grid[x],
+                                             tri_t[0],
+                                             tri_t[1],
+                                             tri_t[2],
+                                             tri_a[0],
+                                             tri_a[1],
+                                             tri_a[2])
+            co_b = transform_point_by_tri_v3(v_grid[(xtot * ytot) + (x - xtot)],
+                                             tri_t[0],
+                                             tri_t[1],
+                                             tri_t[2],
+                                             tri_b[0],
+                                             tri_b[1],
+                                             tri_b[2])
+            co = interp_v3_v3v3(co_a, co_b, y / (ytot - 1))
+            v_grid[(y * xtot) + x] = co
+    return v_grid
