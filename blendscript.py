@@ -582,14 +582,26 @@ class GlobalList:
 
     def render_quads(self, bm: bmesh.types.BMesh, nedges:int):
         quads: List[Tuple[List[bmesh.types.BMEdge], List[bmesh.types.BMEdge]]] = []
+        second: List[Tuple[List[bmesh.types.BMEdge], List[bmesh.types.BMEdge]]] = []
+        third: List[Tuple[List[bmesh.types.BMEdge], List[bmesh.types.BMEdge]]] = []
         for quad in self.quads:
             quads.append(quad.render_quad(bm, nedges, self))
         for e in quads:
             res = bmesh.ops.grid_fill(bm, edges=e[0])
             if len(res["faces"]) == 0:
                 res = bmesh.ops.grid_fill(bm, edges=e[1])
-                #if len(res["faces"]) == 0:
-
+                if len(res["faces"]) == 0:
+                    second.append(e)
+        for e in second:
+            res = bmesh.ops.grid_fill(bm, edges=e[0])
+            if len(res["faces"]) == 0:
+                res = bmesh.ops.grid_fill(bm, edges=e[1])
+                if len(res["faces"]) == 0:
+                    third.append(e)
+        for e in third:
+            res = bmesh.ops.grid_fill(bm, edges=e[0])
+            if len(res["faces"]) == 0:
+                res = bmesh.ops.grid_fill(bm, edges=e[1])
 
 def work_with_mesh(glist: GlobalList, active: bpy.types.Object, nedges: int):
     rotation = active.rotation_euler
