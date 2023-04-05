@@ -233,7 +233,7 @@ class Quad:
             bp_s2: BigPoint) -> bool | Point:
         res = func(p)
         if res:
-            for pp in Quad.turn(p):
+            for pp in Quad.turn(res):
                 for s, bp in zip((s1, s2), (bp_s1, bp_s2)):
                     if s != 0:
                         for f in (Quad.steps_dividing_edges_left, Quad.steps_dividing_edges_right):
@@ -433,7 +433,9 @@ class Quad:
     def render_quad(self, bm: bmesh.types.BMesh, nedges: int, glist: "GlobalList"):
         edges = self.select_quad_edge(self.edges[0], nedges, glist, bm)
         edges.extend(self.select_quad_edge(self.edges[2], nedges, glist, bm))
-        return edges
+        edges1 = self.select_quad_edge(self.edges[1], nedges, glist, bm)
+        edges1.extend(self.select_quad_edge(self.edges[3], nedges, glist, bm))
+        return edges, edges1
 
 class GlobalList:
     def __init__(self):
@@ -579,11 +581,14 @@ class GlobalList:
         raise ValueError("vert not found!")
 
     def render_quads(self, bm: bmesh.types.BMesh, nedges:int):
-        quads: List[List[bmesh.types.BMEdge]] = []
+        quads: List[Tuple[List[bmesh.types.BMEdge], List[bmesh.types.BMEdge]]] = []
         for quad in self.quads:
             quads.append(quad.render_quad(bm, nedges, self))
         for e in quads:
-            bmesh.ops.grid_fill(bm, edges=e)
+            res = bmesh.ops.grid_fill(bm, edges=e[0])
+            if len(res["faces"]) == 0:
+                res = bmesh.ops.grid_fill(bm, edges=e[1])
+                #if len(res["faces"]) == 0:
 
 
 def work_with_mesh(glist: GlobalList, active: bpy.types.Object, nedges: int):
@@ -630,6 +635,10 @@ class CreateSurfacesBetweenCurves(bpy.types.Operator):
             if s.use_cyclic_u:
                 spline.round_spline()
         glist.add_quads()
+        '''AA = []
+        for quad in glist.quads:
+            AA.append(f"quad {[[(seg.p1.i, seg.p2.i) for seg in edge] for edge in quad.edges]}")
+        raise ValueError("\n".join(AA))'''
         work_with_mesh(glist, active, nedges)
 
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
