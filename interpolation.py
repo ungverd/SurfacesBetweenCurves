@@ -10,7 +10,9 @@ def quad_edges_to_normal(co_a1: mathutils.Vector,
     diff_b = co_b2 - co_b1
     diff_a.normalize()
     diff_b.normalize()
-    return diff_a + diff_b
+    no = diff_a + diff_b
+    no.normalize()
+    return no
 
 def quad_verts_to_barycentric_tri(co_a: mathutils.Vector,
                                   co_b: mathutils.Vector,
@@ -157,7 +159,7 @@ def grid_fill(verts1: List[mathutils.Vector],
             v_grid[XY(xtot-1, y+1, xtot)],
             v_grid[XY(0, y-1, xtot)],
             v_grid[XY(xtot-1, y-1, xtot)],
-            True
+            False
         )
         for x in range(1, xtot-1):
             co_a = transform_point_by_tri_v3(v_grid[x],
@@ -177,3 +179,34 @@ def grid_fill(verts1: List[mathutils.Vector],
             co = interp_v3_v3v3(co_a, co_b, y / (ytot - 1))
             v_grid[(y * xtot) + x] = co
     return v_grid
+
+if __name__ == "__main__":
+    import bpy
+    co0 = mathutils.Vector((1, 0, 0))
+    co1 = mathutils.Vector((0.218795002, 0.165621996, 0.158884004))
+    co2 = mathutils.Vector((-0.340187997, 0.331243008, 0.317768991))
+    co3 = mathutils.Vector((-1.03567779, 0.119153097, -0.0528581925))
+    v1 = [co0, co1, co2, co3]
+
+    co12 = mathutils.Vector((0.674865007, -1.05297005, -0.257057995))
+    co13 = mathutils.Vector((-0.149354994, -1.20648003, -0.222370997))
+    co14 = mathutils.Vector((-0.885308981, -0.974228024, -0.0788519979))
+    co15 = mathutils.Vector((-1.32512999, -1.05297005, -0.257057995))
+    v2 = [co12, co13, co14, co15]
+
+    co0 = mathutils.Vector((1, 0, 0))
+    co4 = mathutils.Vector((1.05627, -0.258962005, -0.199132994))
+    co8 = mathutils.Vector((0.658832014, -0.499449998, -0.341482013))
+    co12 = mathutils.Vector((0.674865007, -1.05297005, -0.257057995))
+    rv1 = [co0, co4, co8, co12]
+
+    co3 = mathutils.Vector((-1.03567779, 0.119153097, -0.0528581925))
+    co7 = mathutils.Vector((-1.42443001, -0.252445996, -0.0736439973))
+    co11 = mathutils.Vector((-1.27494001, -0.578944027, -0.167822003))
+    co15 = mathutils.Vector((-1.32512999, -1.05297005, -0.257057995))
+    rv2 = [co3, co7, co11, co15]
+
+    v_grid = grid_fill(v1, v2, rv1, rv2)
+    for co in v_grid:
+        bpy.ops.object.empty_add(type='SPHERE', align='WORLD', location=co, scale=(1, 1, 1))
+        bpy.ops.transform.resize(value = (0.1, 0.1, 0.1))
