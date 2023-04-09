@@ -6,9 +6,8 @@ bl_info = {
 
 
 import bpy
-import bmesh
 import mathutils
-from typing import List, Optional, Tuple, Callable
+from typing import List, Optional, Tuple, Callable, Literal
 from enum import Enum
 import math
 
@@ -251,7 +250,7 @@ class Spline:
                     bpoint = self.glist.get_bpoint(i)
                     added = True
             i += 1
-        point = Point(i-1, self, bpoint, handle_left, handle_right)
+        point = Point(i-1, self, bpoint, handle_left - coords, handle_right - coords)
         bpoint.add_point(point)
         self.points.append(point)
         p_num = len(self.points)
@@ -279,6 +278,79 @@ class Segment:
         if len(self.quads) == 2:
             self.finished = True
 
+    @staticmethod
+    def iterate_direct(segs: "List[Segment]"):
+        yield segs[0].p1
+        for seg in segs:
+            yield seg.p2
+
+    @staticmethod
+    def iterate_reversed(segs: "List[Segment]"):
+        yield segs[-1].p2
+        for seg in reversed(segs):
+            yield seg.p1
+
+def get_y_normalized(p: mathutils.Vector, x: mathutils.Vector):
+    return (p - p.project(x)).normalized()
+
+def calc_basis(init: mathutils.Vector,
+               edge: mathutils.Vector,
+               point: mathutils.Vector,
+               handle1: mathutils.Vector,
+               handle2: Optional[mathutils.Vector] = None):
+    v0 = mathutils.Vector((0, 0, 0))
+    x_vec = (edge - init).normalized()
+    z_vec = x_vec.cross(handle1)
+    if z_vec.length_squared > TH2:
+        y_vec = get_y_normalized(handle1, x_vec)
+        z_vec.normalize()
+    else:
+        p_vec = point - init
+        z_vec = x_vec.cross(p_vec)
+        if (z_vec.length_squared > TH2):
+            y_vec = get_y_normalized(p_vec, x_vec)
+            z_vec.normalize()
+        else:
+            if (handle2 is None):
+                y_vec = v0
+                z_vec = v0
+            else:
+                z_vec = x_vec.cross(handle2)
+                if (z_vec.length_squared > TH2):
+                    z_vec.normalize()
+                    y_vec = get_y_normalized(handle2, x_vec)
+                else:
+                    y_vec = v0
+                    z_vec = v0
+    return mathutils.Matrix((x_vec, y_vec, z_vec))
+
+def get_coords_from_vec_and_basis_matrix(v: mathutils.Vector, m: mathutils.Matrix) -> mathutils.Vector:
+    res = m @ v
+    assert isinstance(res, mathutils.Vector)
+    return res
+
+def get_vec_from_coords_and_basis_matrix(v: mathutils.Vector, m: mathutils.Matrix) -> mathutils.Vector:
+    return v @ m
+
+def my_slerp(p1: mathutils.Vector, p2: mathutils.Vector, factor: float):
+    # slerp returns unit vector, we interpolate length separately
+    return p1.slerp(p2, factor) * (p1.length * (1 - factor) + p2.length * factor)
+
+def make_collinear(v1: mathutils.Vector, v2: mathutils.Vector):
+    dif = (v1 - v2).normalized()
+    new_v1 = dif * v1.length
+    new_v2 = -dif * v2.length
+    return new_v1, new_v2
+
+
+class MiddlePoint:
+    def __init__(self, co: mathutils.Vector):
+        self.co = co
+        self.handle_up: mathutils.Vector
+        self.handle_down: mathutils.Vector
+        self.handle_left: mathutils.Vector
+        self.handle_right: mathutils.Vector
+
 
 class BigQuad:
     def __init__(self,
@@ -291,8 +363,12 @@ class BigQuad:
                  dir3: bool,
                  dir4: bool,
                  glist: "GlobalList"):
+        self.v_grid: List[mathutils.Vector]
+        self.xtot = len(edg1) + 1
+        self.ytot = len(edg2) + 1
         self.edges = [edg1, edg2, edg3, edg4]
         self.dirs = [dir1, dir2, dir3, dir4]
+        self.points_grid: List[List[MiddlePoint]] = []
         for edg in self.edges:
             for segment in edg:
                 segment.add_quad(self)
@@ -301,22 +377,191 @@ class BigQuad:
     @staticmethod
     def extract_coords(edg: List[Segment], dir: bool, glist: "GlobalList"):
         if dir:
-            res = [glist.get_coords(edg[0].p1.i)]
-            res.extend([glist.get_coords(seg.p2.i) for seg in edg])
+            res = [glist.get_coords(p.i) for p in Segment.iterate_direct(edg)]
         else:
-            edg = edg[:]
-            edg.reverse()
-            res = [glist.get_coords(edg[0].p2.i)]
-            res.extend([glist.get_coords(seg.p1.i) for seg in edg])
+            res = [glist.get_coords(p.i) for p in Segment.iterate_reversed(edg)]
         return res
 
-    def subdivide(self, glist: "GlobalList"):
-        v1 = BigQuad.extract_coords(self.edges[0], True, glist)
-        v2 = BigQuad.extract_coords(self.edges[2], not self.dirs[2], glist)
-        rv1 = BigQuad.extract_coords(self.edges[3], not self.dirs[3], glist)
-        rv2 = BigQuad.extract_coords(self.edges[1], self.dirs[1], glist)
-        v_grid = grid_fill(v1, v2, rv1, rv2)
+    @staticmethod
+    def extract_handles(edg: List[Segment]):
+        handles: List[Optional[mathutils.Vector]] = []
+        for p in Segment.iterate_direct(edg):
+            if len(p.bpoint.points) == 1:
+                handles.append(None)
+            else:
+                point_handles: List[mathutils.Vector] = []
+                for pp in p.bpoint.points:
+                    if pp != p:
+                        if pp.post_seg and not pp.prev_seg:
+                            point_handles.append(pp.handle_left)
+                        elif pp.prev_seg and not pp.post_seg:
+                            point_handles.append(pp.handle_right)
+                if len(point_handles) == 0:
+                    handles.append(None)
+                elif len(point_handles) == 1:
+                    handles.append(point_handles[0])
+                else:
+                    total = point_handles[0]
+                    for h in point_handles[1:]:
+                        total += h
+                    handles.append(total/len(point_handles))
+        return handles
 
+    @staticmethod
+    def populate_handles(handles: List[Optional[mathutils.Vector]]) -> List[mathutils.Vector]:
+        i = 0
+        count = 1
+        while i < (len(handles) - 1):
+            p1 = handles[i]
+            assert isinstance(p1, mathutils.Vector)
+            count = 1
+            p2 = handles[i + count]
+            while p2 is None:
+                count += 1
+                p2 = handles[i + count]
+            for j in range(i + 1, i + count):
+                factor = j / count
+                # slerp returns unit vector, we interpolate length separately
+                handles[j] = my_slerp(p1, p2, factor)
+            i += count
+        res_handles = [h for h in handles if h is not None]
+        assert len(res_handles) == len(handles)
+        return res_handles
+
+    def calc_init_coords(self,
+                         i: int,
+                         right: bool,
+                         horisontal: bool,
+                         h1: bool,
+                         h: List[mathutils.Vector]):
+        tot = self.xtot if horisontal else self.ytot
+        second_coord = 0 if h1 else tot - 1
+        first_coord1 = i - 1 if right else i + 1
+        first_coord2 = i + 1 if right else i - 1
+        coords1 = [first_coord1, second_coord]
+        coords2 = [first_coord2, second_coord]
+        coords3 = [i, second_coord]
+        if not horisontal:
+            for l in (coords1, coords2, coords3):
+                l.reverse()
+        for l in (coords1, coords2, coords3):
+            l.append(self.xtot)
+        matrix = calc_basis(self.v_grid[XY(*coords1)],
+                            self.v_grid[XY(*coords2)],
+                            self.v_grid[XY(*coords3)],
+                            h[first_coord1],
+                            h[i])
+        return get_coords_from_vec_and_basis_matrix(h[i], matrix)
+
+    def handle_fin(self,
+                   i: int,
+                   j: int,
+                   vh1: List[mathutils.Vector],
+                   vh2: List[mathutils.Vector],
+                   coords1: mathutils.Vector,
+                   coords2: mathutils.Vector,
+                   right: bool,
+                   horisontal: bool):
+        xtot = self.xtot if horisontal else self.ytot
+        ytot = self.ytot if horisontal else self.xtot
+        coord1 = i - 1 if right else i + 1
+        coord2 = i + 1 if right else i - 1
+        c1 = [coord1, j]
+        c2 = [coord2, j]
+        c3 = [i, j]
+        h_side = my_slerp(vh1[j], -vh2[j], (i - 1)/(xtot - 1)) if right else my_slerp(-vh1[j], vh2[j], (i + 1)/(xtot - 1))
+        if not horisontal:
+            for c in (c1, c2, c3):
+                c.reverse()
+        for c in (c1, c2, c3):
+            c.append(self.xtot)
+        dest_m = calc_basis(self.v_grid[XY(*c1)],
+                            self.v_grid[XY(*c2)],
+                            self.v_grid[XY(*c3)],
+                            h_side)
+        coords_fin = my_slerp(coords1, coords2, j/(ytot - 1))
+        return get_vec_from_coords_and_basis_matrix(coords_fin, dest_m)
+
+    def subdivide(self, glist: "GlobalList", obj: bpy.types.ID):
+        v1 = BigQuad.extract_coords(self.edges[0], True, glist)
+        v2 = BigQuad.extract_coords(self.edges[2], self.dirs[2], glist)
+        rv1 = BigQuad.extract_coords(self.edges[3], self.dirs[3], glist)
+        rv2 = BigQuad.extract_coords(self.edges[1], self.dirs[1], glist)
+        self.v_grid = grid_fill(v1, v2, rv1, rv2)
+        for i in range(1, len(rv1)-1):
+            row: List[MiddlePoint] = []
+            for j in range(1, len(v1)-1):
+                row.append(MiddlePoint(self.v_grid[XY(j, i, self.xtot)]))
+            self.points_grid.append(row)
+        cross_hs = [BigQuad.populate_handles(BigQuad.extract_handles(edg)) for edg in self.edges]
+        for i in range(4):
+            if not self.dirs[i]:
+                cross_hs[i].reverse()
+        cross_h1 = cross_hs[0]
+        cross_h2 = cross_hs[2]
+        cross_vh1 = cross_hs[3]
+        cross_vh2 = cross_hs[1]
+        h_right_left = [
+            (
+                [p.handle_right for p in Segment.iterate_direct(edge)] if d else 
+                [p.handle_left for p in Segment.iterate_reversed(edge)],
+                [p.handle_left for p in Segment.iterate_direct(edge)] if d else
+                [p.handle_right for p in Segment.iterate_reversed(edge)]
+            ) for edge, d in zip(self.edges, self.dirs)]
+        h1_right = h_right_left[0][0]
+        h1_left = h_right_left[0][1]
+        h2_right = h_right_left[2][0]
+        h2_left= h_right_left[2][1]
+        vh1_down = h_right_left[3][0]
+        vh1_up = h_right_left[3][1]
+        vh2_down = h_right_left[1][0]
+        vh2_up = h_right_left[1][1]
+        horisontal = True
+        for i in range(1, self.xtot - 1):
+            coords_right1 = self.calc_init_coords(i, True, horisontal, True, h1_right)
+            coords_right2 = self.calc_init_coords(i, True, horisontal, False, h2_right)
+            coords_left1 = self.calc_init_coords(i, False, horisontal, True, h1_left)
+            coords_left2 = self.calc_init_coords(i, False, horisontal, False, h2_left)
+            for j in range(1, self.ytot - 1):
+                res_right = self.handle_fin(i, j, cross_vh1, cross_vh2, coords_right1, coords_right2, True, horisontal)
+                res_left = self.handle_fin(i, j, cross_vh1, cross_vh2, coords_left1, coords_left2, False, horisontal)
+                collinear_right, collinear_left = make_collinear(res_right, res_left)
+                self.points_grid[j - 1][i - 1].handle_right = collinear_right
+                self.points_grid[j - 1][i - 1].handle_left = collinear_left
+        vertical = False
+        for j in range(1, self.ytot - 1):
+            coords_down1 = self.calc_init_coords(j, True, vertical, True, vh1_down)
+            coords_down2 = self.calc_init_coords(j, True, vertical, False, vh2_down)
+            coords_up1 = self.calc_init_coords(j, False, vertical, True, vh1_up)
+            coords_up2 = self.calc_init_coords(j, False, vertical, False, vh2_up)
+            for i in range(1, self.xtot - 1):
+                res_down = self.handle_fin(j, i, cross_h1, cross_h2, coords_down1, coords_down2, True, vertical)
+                res_up = self.handle_fin(j, i, cross_h1, cross_h2, coords_up1, coords_up2, False, vertical)
+                collinear_down, collinear_up = make_collinear(res_down, res_up)
+                self.points_grid[j - 1][i - 1].handle_down = collinear_down
+                self.points_grid[j - 1][i - 1].handle_up = collinear_up
+        for i in range(self.xtot - 2):
+            spline = obj.data.splines.new("BEZIER")
+            for j in range(self.ytot - 2):
+                p = self.points_grid[j][i]
+                point = bpy.types.BezierSplinePoint()
+                point.co = p.co
+                point.handle_left = p.handle_up
+                point.handle_right = p.handle_down
+                point.handle_left_type = "ALIGNED"
+                point.handle_right_type = "ALIGNED"
+                spline.bezier_points.append(point)
+        for j in range(self.ytot - 2):
+            spline = obj.data.splines.new("BEZIER")
+            for i in range(self.xtot - 2):
+                p = self.points_grid[j][i]
+                point = bpy.types.BezierSplinePoint()
+                point.co = p.co
+                point.handle_left = p.handle_left
+                point.handle_right = p.handle_right
+                point.handle_left_type = "ALIGNED"
+                point.handle_right_type = "ALIGNED"
+                spline.bezier_points.append(point)
 
 
 class Quad:
@@ -523,7 +768,7 @@ class Quad:
     @staticmethod
     def verify_div(b1: List[BigPoint], b2: List[BigPoint], dir1: bool, dir2: bool, n: int):
         for i in range(len(b1)):
-            if dir1 != dir2:
+            if dir1 == dir2:
                 if Quad.verify_dividing_edges(b1[i], b2[i], n):
                     return True
             else:
@@ -536,13 +781,9 @@ class Quad:
         points: List[Point] = []
         if edge:
             if dir:
-                points = [edge[0].p1]
-                points.extend([seg.p2 for seg in edge])
+                points = list(Segment.iterate_direct(edge))
             else:
-                points = [edge[-1].p2]
-                edge = edge[:]
-                edge.reverse()
-                points.extend([seg.p1 for seg in edge])
+                points = list(Segment.iterate_reversed(edge))
         return points
 
     @staticmethod
@@ -573,11 +814,11 @@ class Quad:
             return False
         dir1 = True
         dir2 = Quad.get_dir_from_right(edg1, segments)
-        dir4 = Quad.get_dir_from_left(edg1, segments)
+        dir4 = not Quad.get_dir_from_left(edg1, segments)
         if dir2:
-            dir3 = Quad.get_dir_from_right(edg2, segments)
+            dir3 = not Quad.get_dir_from_right(edg2, segments)
         else:
-            dir3 = not Quad.get_dir_from_left(edg2, segments)
+            dir3 = Quad.get_dir_from_left(edg2, segments)
         if le == 4:
             Quad(edg1[0], edg2[0], edg3[0], edg4[0], dir1, dir2, dir3, dir4, glist)
             return True
@@ -586,8 +827,8 @@ class Quad:
         points1 = Quad.extract_points(edg1, True)
         points2 = Quad.extract_points(edg2, dir2)
         bpoints2 = [p.bpoint for p in points2]
-        points3 = Quad.extract_points(edg3, not dir3)
-        points4 = Quad.extract_points(edg4, not dir4)
+        points3 = Quad.extract_points(edg3, dir3)
+        points4 = Quad.extract_points(edg4, dir4)
         bpoints4 = [p.bpoint for p in points4]
         le_e1 = len(edg1)
         n = len(edg2)
@@ -609,7 +850,7 @@ class Quad:
         if Quad.steps(points3[-1], n, bpoints4[1:], bpoints4[1:], le_e1, 0,
                       Quad.little_quads_step_left if dir3 else Quad.little_quads_step_right):
             return False
-        #Quad(edg1, edg2, edg3, edg4, dir1, dir2, dir3, dir4, glist)
+        BigQuad(edg1, edg2, edg3, edg4, dir1, dir2, dir3, dir4, glist)
         return True
 
     def __init__(self,
@@ -770,9 +1011,13 @@ class GlobalList:
             if not segment.finished:
                 self.work_with_segment(segment)
 
+    def subdivide_quads(self, obj: bpy.types.ID):
+        for bq in self.big_quads:
+            bq.subdivide(self, obj)
+
 
 def work_with_mesh(glist: GlobalList, active: bpy.types.Object, nedges: int):
-    rotation = active.rotation_euler
+    '''rotation = active.rotation_euler
     location = active.location
     scale = active.scale
 
@@ -780,7 +1025,7 @@ def work_with_mesh(glist: GlobalList, active: bpy.types.Object, nedges: int):
     obj.rotation_euler = rotation
     obj.location = location
     obj.scale = scale
-    bpy.context.collection.objects.link(obj)
+    bpy.context.collection.objects.link(obj)'''
 
 
 class CreateSurfacesBetweenCurves(bpy.types.Operator):
@@ -795,7 +1040,7 @@ class CreateSurfacesBetweenCurves(bpy.types.Operator):
 
         active = context.active_object
         cur = active.data
-        nedges = cur.resolution_u
+        #nedges = cur.resolution_u
         splines = cur.splines
 
         for s in splines:
@@ -805,7 +1050,11 @@ class CreateSurfacesBetweenCurves(bpy.types.Operator):
             if s.use_cyclic_u:
                 spline.round_spline()
         glist.add_quads()
-        work_with_mesh(glist, active, nedges)
+        obj = context.object.copy()
+        glist.subdivide_quads(obj)
+        context.collection.objects.link(obj)
+
+        #work_with_mesh(glist, active, nedges)
 
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
 
