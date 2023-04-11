@@ -14,133 +14,6 @@ import math
 TH = 0.00001
 TH2 = TH**2
 
-#**************************************************************************
-
-try:
-    #raise(ModuleNotFoundError)
-    import numpy as np
-    import numpy.typing as npt
-    J_S = np.arange(4)                               # shape (4)
-    COMBS = np.array([math.comb(3, j) for j in J_S]) # shape (4)
-    class DependantsOfResolution_np:
-        def __init__(self):
-            self.nedges = 0
-            self.v0: npt.NDArray[np.float64]
-            self.u0: npt.NDArray[np.float64]
-            self.v02: npt.NDArray[np.float64]
-            self.u02: npt.NDArray[np.float64]
-            self.uv_div: npt.NDArray[np.float64]
-            self.berns2d: npt.NDArray[np.float64]
-            self.dims1: npt.NDArray[np.float64]
-            self.dims2: npt.NDArray[np.float64]
-
-        def conditional_update(self, nedges: int):
-            if self.nedges != nedges:
-                self.nedges = nedges
-                self.update()
-
-        def update(self):
-            v = np.linspace(0, 1, self.nedges + 1) # shape      (N+1)
-            u = np.expand_dims(v, 1)               # shape (N+1, 1  )
-            self.v0 = v[1:self.nedges]             # shape      (N-1)
-            self.u0 = u[1:self.nedges]             # shape (N-1, 1  )
-            self.v02 = np.expand_dims(np.stack((self.v0, 1-self.v0), 1), axis=(1,3)) # shape      (N-1, 1, 2, 1)
-            self.u02 = np.expand_dims(self.v02, axis=4)                              # shape (N-1, 1  , 2, 1, 1)
-            self.uv_duv = self.u02 + self.v02                                        # shape (N-1, N-1, 2, 2, 1)
-
-            berns = np.expand_dims(COMBS * self.u0**J_S * (1-self.u0)**(3-J_S), axis=1) # shape      (N-1, 1, 4)
-            berns2 = np.expand_dims(berns, axis=3)                                      # shape (N-1, 1  , 4, 1)
-            self.berns2d = np.expand_dims(berns*berns2, axis=4)                      # shape (N-1, N-1, 4, 4, 1)
-
-            self.dims1 = np.empty((self.nedges-1, self.nedges-1, 1, 2, 3))
-            self.dims2 = np.empty((self.nedges-1, self.nedges-1, 4, 1, 3))
-
-    def calc_control_points_np(input1: List[List[mathutils.Vector]],
-                               input2: List[List[mathutils.Vector]],
-                               d: DependantsOfResolution):
-        full = np.array(input1)                     # shape           (4, 4, 3)
-        cp_u = full[1:3, 1:3, :]                    # shape           (2, 2, 3)
-        cp_v = np.array(input2)                     # shape           (2, 2, 3)
-        cp_central = (cp_u*d.v02 + cp_v*d.u02) / d.uv_div # shape (N-1, N-1, 2, 2, 3)
-
-        top, _ = np.broadcast_arrays(full[0, 1:3], d.dims1)        # shape (N-1, N-1, 1, 2, 3)
-        bottom, _ = np.broadcast_arrays(full[3, 1:3], d.dims1)     # shape (N-1, N-1, 1, 2, 3)
-        res1 = np.concatenate((top, cp_central, bottom), axis=2) # shape (N-1, N-1, 4, 2, 3)
-        left, _ = np.broadcast_arrays(np.expand_dims(full[:, 0], axis=1), d.dims2)  # shape (N-1, N-1, 4, 1, 3)
-        right, _ = np.broadcast_arrays(np.expand_dims(full[:, 3], axis=1), d.dims2) # shape (N-1, N-1, 4, 1, 3)
-        res2 = np.concatenate((left, res1, right), axis=3)  # shape (N-1, N-1, 4, 4, 3)
-        return res2
-
-    def calc_gregory_surf(kk: List[List[mathutils.Vector]],
-                          kk1: List[List[mathutils.Vector]],
-                          mesh: bpy.types.Mesh,
-                          d: "DependantsOfResolution_np | DependantsOfResolution"):
-        assert isinstance(d, DependantsOfResolution_np)
-        control_points = calc_control_points_np(kk, kk1, d)
-        res: npt.NDArray[np.float64] = np.sum((d.berns2d * control_points), (2, 3)).reshape(d.nedges-1 * d.nedges-1, 3)
-        # numpy representation of the formula p(u,v) = sum_i_from_0_to_3(sum_j_from_0_to_3( k(i,j)*B(i,u)*B(j,v) ))
-        mesh.from_pydata(res, [], FACES)
-
-    d = DependantsOfResolution_np()
-
-except (ModuleNotFoundError, ImportError):
-    from copy import deepcopy
-    def bernstein(i: int, u: float):
-        return math.comb(3, i) * u**i * (1-u)**(3-i)
-    
-    class DependantsOfResolution:
-        def __init__(self):
-            self.nedges = 0
-            self.berns: List[List[float]]
-            self.b2: List[List[List[List[float]]]]
-
-        def conditional_update(self, nedges: int):
-            if self.nedges != nedges:
-                self.nedges = nedges
-                self.berns = [[bernstein(i, k/nedges) for i in range(4)] for k in range(nedges + 1)]
-                self.b2 = [[[[self.berns2_el(i,j,nu,nv) for j in range(4)] for i in range(4)]\
-                               for nv in range(nedges + 1)] for nu in range(nedges + 1)]
-
-        def berns2_el(self, i: int, j: int, nu: int, nv:int):
-            return self.berns[nu][i] * self.berns[nv][j]
-
-    def calc_control_points(kk: List[List[mathutils.Vector]],
-                            kk1: List[List[mathutils.Vector]],
-                            nu: int,
-                            nv: int,
-                            d: DependantsOfResolution):
-        u = nu / d.nedges
-        v = nv / d.nedges
-        cp = deepcopy(kk)
-        cp[1][1] = (u * kk1[0][0] + v * kk[1][1]) / (u + v)
-        cp[2][1] = ((1 - u) * kk1[1][0] + v * kk[2][1]) / (1 - u + v)
-        cp[1][2] = (u * kk1[0][1] + (1 - v) * kk[1][2]) / (1 - v + u)
-        cp[2][2] = ((1 - u) * kk1[1][1] + (1 - v) * kk[2][2]) / (2 - u - v)
-        return cp
-
-    def calc_point(nu: int,
-                   nv: int,
-                   kk: List[List[mathutils.Vector]],
-                   kk1: List[List[mathutils.Vector]],
-                   d: DependantsOfResolution):
-        el: List[float] = []
-        control_points = calc_control_points(kk, kk1, nu, nv, d)
-        for k in range(3):
-            el.append(sum(sum(control_points[i][j][k] * d.b2[nu][nv][i][j] for j in range(4)) for i in range(4)))
-        return mathutils.Vector(el)
-
-    def calc_gregory_surf(kk: List[List[mathutils.Vector]],
-                          kk1: List[List[mathutils.Vector]],
-                          mesh: bpy.types.Mesh,
-                          d: "DependantsOfResolution_np | DependantsOfResolution"):
-        assert isinstance(d, DependantsOfResolution)
-        res = [calc_point(nu, nv, kk, kk1, d) for nv in range(1, d.nedges) for nu in range(1, d.nedges)]
-        mesh.from_pydata(res, [], FACES)
-
-    d = DependantsOfResolution()
-
-#**************************************************************************
-
 def quad_edges_to_normal(co_a1: mathutils.Vector,
                          co_a2: mathutils.Vector,
                          co_b1: mathutils.Vector,
@@ -319,16 +192,6 @@ def grid_fill(verts1: List[mathutils.Vector],
             v_grid[(y * xtot) + x] = co
     return v_grid
 
-def are_coplanar(v1: mathutils.Vector, v2: mathutils.Vector, v3: mathutils.Vector):
-    return abs(mathutils.Matrix((v1, v2, v3)).determinant()) < TH
-
-def make_coplanar(v1: mathutils.Vector, v2: mathutils.Vector, v3: mathutils.Vector):
-    v4 = v2 - v3
-    normal = v1.cross(v4)
-    new_v2 = v2 - v2.project(normal)
-    new_v3 = v3 - v3.project(normal)
-    return (new_v2, new_v3)
-
 #*******************************************************************************************
 
 def same_coords(c1: mathutils.Vector, c2: mathutils.Vector) -> bool:
@@ -434,28 +297,18 @@ def calc_basis(init: mathutils.Vector,
                edge: mathutils.Vector,
                point: mathutils.Vector,
                handle1: mathutils.Vector,
-               handle2: Optional[mathutils.Vector] = None,
-               permut: bool = True):
-    vec1 = edge - init
-    vec2 = point - init
-    if permut:
-        return calc_basis_intern(vec1, handle1, vec2, handle2)
-    return calc_basis_intern(vec1, vec2, handle1, handle2)
-
-def calc_basis_intern(vec1: mathutils.Vector,
-                      vec2: mathutils.Vector,
-                      handle1: mathutils.Vector,
-                      handle2: Optional[mathutils.Vector] = None):
+               handle2: Optional[mathutils.Vector] = None):
     v0 = mathutils.Vector((0, 0, 0))
-    x_vec = vec1.normalized()
+    x_vec = (edge - init).normalized()
     z_vec = x_vec.cross(handle1)
     if z_vec.length_squared > TH2:
         y_vec = get_y_normalized(handle1, x_vec)
         z_vec.normalize()
     else:
-        z_vec = x_vec.cross(vec2)
+        p_vec = point - init
+        z_vec = x_vec.cross(p_vec)
         if (z_vec.length_squared > TH2):
-            y_vec = get_y_normalized(vec2, x_vec)
+            y_vec = get_y_normalized(p_vec, x_vec)
             z_vec.normalize()
         else:
             if (handle2 is None):
@@ -478,6 +331,10 @@ def get_coords_from_vec_and_basis_matrix(v: mathutils.Vector, m: mathutils.Matri
 
 def get_vec_from_coords_and_basis_matrix(v: mathutils.Vector, m: mathutils.Matrix) -> mathutils.Vector:
     return v @ m
+
+def my_slerp(p1: mathutils.Vector, p2: mathutils.Vector, factor: float):
+    # slerp returns unit vector, we interpolate length separately
+    return p1.slerp(p2, factor) * (p1.length * (1 - factor) + p2.length * factor)
 
 def make_collinear(v1: mathutils.Vector, v2: mathutils.Vector):
     dif = (v1 - v2).normalized()
@@ -617,7 +474,8 @@ class BigQuad:
                 p2 = handles[i + count]
             for j in range(i + 1, i + count):
                 factor = j / count
-                handles[j] = p1.lerp(p2, factor)
+                # slerp returns unit vector, we interpolate length separately
+                handles[j] = my_slerp(p1, p2, factor)
             i += count
         res_handles = [h for h in handles if h is not None]
         assert len(res_handles) == len(handles)
@@ -645,8 +503,7 @@ class BigQuad:
                             self.v_grid[XY(*coords2)],
                             self.v_grid[XY(*coords3)],
                             h[first_coord1],
-                            h[i],
-                            False)
+                            h[i])
         return get_coords_from_vec_and_basis_matrix(h[i], matrix)
 
     def handle_fin(self,
@@ -665,81 +522,18 @@ class BigQuad:
         c1 = [coord1, j]
         c2 = [coord2, j]
         c3 = [i, j]
-        h_side = vh1[j].lerp(-vh2[j], (i - 1)/(xtot - 1)) if right else -vh1[j].lerp(vh2[j], (i + 1)/(xtot - 1))
+        h_side = my_slerp(vh1[j], -vh2[j], (i - 1)/(xtot - 1)) if right else my_slerp(-vh1[j], vh2[j], (i + 1)/(xtot - 1))
         if not horisontal:
             for c in (c1, c2, c3):
                 c.reverse()
         for c in (c1, c2, c3):
             c.append(self.xtot)
         dest_m = calc_basis(self.v_grid[XY(*c1)],
-                             self.v_grid[XY(*c2)],
-                             self.v_grid[XY(*c3)],
-                             h_side)
-        coords_fin = coords1.lerp(coords2, j/(ytot - 1))
+                            self.v_grid[XY(*c2)],
+                            self.v_grid[XY(*c3)],
+                            h_side)
+        coords_fin = my_slerp(coords1, coords2, j/(ytot - 1))
         return get_vec_from_coords_and_basis_matrix(coords_fin, dest_m)
-
-    @staticmethod
-    def add_point_to_curve(point: bpy.types.BezierSplinePoint,
-                           co: mathutils.Vector,
-                           handle_left: mathutils.Vector,
-                           handle_right: mathutils.Vector):
-        point.co = co
-        point.handle_left = handle_left + co
-        point.handle_right = handle_right + co
-        point.handle_left_type = "ALIGNED"
-        point.handle_right_type = "ALIGNED"
-
-    def add_new_quads(self, glist: "GlobalList"):
-        glist.big_quads.remove(self)
-        for side in self.edges:
-            for edg in side:
-                edg.quads.remove(self)
-        horisontal_splines: List[Spline] = []
-        vertical_splines: List[Spline] = []
-        for i in range(1, self.xtot - 1):
-            spline = Spline(glist)
-            vertical_splines.append(spline)
-            for j in range(self.ytot):
-                p = self.points_grid[j][i]
-                spline.add_point(p.co, p.handle_up, p.handle_down)
-        for j in range(1, self.ytot - 1):
-            spline = Spline(glist)
-            horisontal_splines.append(spline)
-            for i in range(self.xtot):
-                p = self.points_grid[j][i]
-                spline.add_point(p.co, p.handle_left, p.handle_right)
-        for i in range(self.xtot - 1):
-            for j in range(self.ytot - 1):
-                seg1 = horisontal_splines[j - 1].segments[i] if j > 0 else self.edges[0][i]
-                dir1 = True
-                if j < (self.ytot - 2):
-                    seg3 = horisontal_splines[j].segments[i]
-                    dir3 = True
-                else:
-                    dir3 = self.dirs[2]
-                    if dir3:
-                        seg3 = self.edges[2][i]
-                    else:
-                        seg3 = self.edges[2][-i - 1]
-                if i > 0:
-                    dir4 = True
-                    seg4 = vertical_splines[i - 1].segments[j]
-                else:
-                    dir4 = self.dirs[3]
-                    if dir4:
-                        seg4 = self.edges[3][j]
-                    else:
-                        seg4 = self.edges[3][-j - 1]
-                if i < (self.xtot - 2):
-                    seg2 = vertical_splines[i].segments[j]
-                    dir2 = True
-                else:
-                    dir2 = self.dirs[1]
-                    if dir2:
-                        seg2 = self.edges[1][j]
-                    else:
-                        seg2 = self.edges[1][-j - 1]
-                Quad(seg1, seg2, seg3, seg4, dir1, dir2, dir3, dir4, glist)
 
     def subdivide(self, glist: "GlobalList", obj: bpy.types.ID):
         v1 = BigQuad.extract_coords(self.edges[0], True, glist)
@@ -815,14 +609,21 @@ class BigQuad:
             spline.bezier_points.add(self.ytot - 1)
             for j, point in zip(range(self.ytot), spline.bezier_points):
                 p = self.points_grid[j][i]
-                BigQuad.add_point_to_curve(point, p.co, p.handle_up, p.handle_down)
+                point.co = p.co
+                point.handle_left = p.handle_up + p.co
+                point.handle_right = p.handle_down + p.co
+                point.handle_left_type = "ALIGNED"
+                point.handle_right_type = "ALIGNED"
         for j in range(1, self.ytot - 1):
             spline = obj.data.splines.new("BEZIER")
             spline.bezier_points.add(self.xtot - 1)
             for i, point in zip(range(self.xtot), spline.bezier_points):
                 p = self.points_grid[j][i]
-                BigQuad.add_point_to_curve(point, p.co, p.handle_left, p.handle_right)
-        self.add_new_quads(glist)
+                point.co = p.co
+                point.handle_left = p.handle_left + p.co
+                point.handle_right = p.handle_right + p.co
+                point.handle_left_type = "ALIGNED"
+                point.handle_right_type = "ALIGNED"
 
 
 class Quad:
@@ -1301,8 +1102,7 @@ class CreateSurfacesBetweenCurves(bpy.types.Operator):
 
         active = context.active_object
         cur = active.data
-        nedges = cur.resolution_u
-        d.conditional_update(nedges)
+        #nedges = cur.resolution_u
         splines = cur.splines
 
         for s in splines:
