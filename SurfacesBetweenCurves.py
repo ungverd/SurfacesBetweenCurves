@@ -30,6 +30,7 @@ try:
             self.v02: npt.NDArray[np.float64]
             self.u02: npt.NDArray[np.float64]
             self.uv_div: npt.NDArray[np.float64]
+            self.berns: npt.NDArray[np.float64]
             self.berns2d: npt.NDArray[np.float64]
             self.dims1: npt.NDArray[np.float64]
             self.dims2: npt.NDArray[np.float64]
@@ -48,16 +49,18 @@ try:
             self.u02 = np.expand_dims(self.v02, axis=4)                              # shape (N-1, 1  , 2, 1, 1)
             self.uv_duv = self.u02 + self.v02                                        # shape (N-1, N-1, 2, 2, 1)
 
-            berns = np.expand_dims(COMBS * self.u0**J_S * (1-self.u0)**(3-J_S), axis=1) # shape      (N-1, 1, 4)
-            berns2 = np.expand_dims(berns, axis=3)                                      # shape (N-1, 1  , 4, 1)
-            self.berns2d = np.expand_dims(berns*berns2, axis=4)                      # shape (N-1, N-1, 4, 4, 1)
+            berns = COMBS * u**J_S * (1-u)**(3-J_S)                # shape         (N+1, 4)
+            self.berns = np.expand_dims(berns, axis=2)             # shape      (N+1, 4, 1)
+            berns1 = np.expand_dims(berns[1:self.nedges], axis=1)  # shape      (N-1, 1, 4)
+            berns2 = np.expand_dims(berns1, axis=3)                # shape (N-1, 1  , 4, 1)
+            self.berns2d = np.expand_dims(berns1*berns2, axis=4)# shape (N-1, N-1, 4, 4, 1)
 
             self.dims1 = np.empty((self.nedges-1, self.nedges-1, 1, 2, 3))
             self.dims2 = np.empty((self.nedges-1, self.nedges-1, 4, 1, 3))
 
     def calc_control_points_np(input1: List[List[mathutils.Vector]],
                                input2: List[List[mathutils.Vector]],
-                               d: DependantsOfResolution):
+                               d: DependantsOfResolution_np):
         full = np.array(input1)                     # shape           (4, 4, 3)
         cp_u = full[1:3, 1:3, :]                    # shape           (2, 2, 3)
         cp_v = np.array(input2)                     # shape           (2, 2, 3)
@@ -81,13 +84,22 @@ try:
         # numpy representation of the formula p(u,v) = sum_i_from_0_to_3(sum_j_from_0_to_3( k(i,j)*B(i,u)*B(j,v) ))
         mesh.from_pydata(res, [], FACES)
 
+    def generate_bezier(p1: mathutils.Vector,
+                        p2: mathutils.Vector,
+                        h1: mathutils.Vector,
+                        h2: mathutils.Vector,
+                        d: "DependantsOfResolution_np | DependantsOfResolution") -> npt.NDArray[np.float64]:
+        assert isinstance(d, DependantsOfResolution_np)
+        points = np.array([p1, p1 + h1, p2 + h2, p2]) #shape   (4, 3)
+        return np.sum(d.berns * points, 1)            #shape (N+1, 3)
+
     d = DependantsOfResolution_np()
 
 except (ModuleNotFoundError, ImportError):
     from copy import deepcopy
     def bernstein(i: int, u: float):
         return math.comb(3, i) * u**i * (1-u)**(3-i)
-    
+
     class DependantsOfResolution:
         def __init__(self):
             self.nedges = 0
@@ -136,6 +148,21 @@ except (ModuleNotFoundError, ImportError):
         assert isinstance(d, DependantsOfResolution)
         res = [calc_point(nu, nv, kk, kk1, d) for nv in range(1, d.nedges) for nu in range(1, d.nedges)]
         mesh.from_pydata(res, [], FACES)
+
+    def my_vector_sum(li: List[mathutils.Vector]):
+        s = li[0]
+        for ve in li[1:]:
+            s += ve
+        return s
+
+    def generate_bezier(p1: mathutils.Vector,
+                        p2: mathutils.Vector,
+                        h1: mathutils.Vector,
+                        h2: mathutils.Vector,
+                        d: "DependantsOfResolution_np | DependantsOfResolution"):
+        assert isinstance(d, DependantsOfResolution)
+        points = [p1, p1 + h1, p2 + h2, p2]
+        return [my_vector_sum([d.berns[k][i] * points[i] for i in range(4)]) for k in range(d.nedges + 1)]
 
     d = DependantsOfResolution()
 
@@ -331,6 +358,21 @@ def make_coplanar(v1: mathutils.Vector, v2: mathutils.Vector, v3: mathutils.Vect
 
 #*******************************************************************************************
 
+def get_coefs(b: mathutils.Vector, s: mathutils.Vector, a: mathutils.Vector):
+    if b[0] < TH and s[0] < TH:
+        return coefs_use_axis(b, s, a, 1, 2)
+    if b[1] < TH and s[1] < TH:
+        return coefs_use_axis(b, s, a, 0, 2)
+    return coefs_use_axis(b, s, a, 0, 1)
+
+def coefs_use_axis(b: mathutils.Vector, s: mathutils.Vector, a: mathutils.Vector, i: int, j: int):
+    h = (a[i]*b[j] - a[j]*b[i]) / (s[i]*b[j] - s[j]*b[i])
+    if b[i] > TH:
+        k = (a[i] - h * s[i]) / b[i]
+    else:
+        k = (a[j] - h * s[j]) / b[j]
+    return (k, h)
+
 def same_coords(c1: mathutils.Vector, c2: mathutils.Vector) -> bool:
     return (c1-c2).length_squared < TH2
 
@@ -414,6 +456,13 @@ class Segment:
         self.quads.append(quad)
         if len(self.quads) == 2:
             self.finished = True
+
+    def calculate_midpoint(self, glist: "GlobalList"):
+        p0 = glist.get_coords(self.p1.i)
+        p1 = p0 + self.p1.handle_right
+        p3 = glist.get_coords(self.p2.i)
+        p2 = p3 + self.p2.handle_left
+        return 1/8 * (p0 + 3*p1 + 3*p2 + p3)
 
     @staticmethod
     def iterate_direct(segs: "List[Segment]"):
@@ -1124,12 +1173,121 @@ class Quad:
                  dir3: bool,
                  dir4: bool,
                  glist: "GlobalList"):
+        self.kk = [[mathutils.Vector((0,0,0))] * 4] * 4
+        self.kk1 = [[mathutils.Vector((0,0,0))] * 2] * 2
         self.segments = [seg1, seg2, seg3, seg4]
         self.directions = [dir1, dir2, dir3, dir4]
         for seg in self.segments:
             seg.add_quad(self)
         glist.add_quad(self)
 
+    def get_edge_control_points(self, edge_num: int, glist: "GlobalList"):
+        p1 = self.segments[edge_num].p1
+        p4 = self.segments[edge_num].p2
+        k1 = glist.get_coords(p1.i)
+        k2 = k1 + p1.handle_right
+        k4 = glist.get_coords(p4.i)
+        k3 = k4 + p4.handle_left
+        res = [k1, k2, k3, k4]
+        if not self.directions[edge_num]:
+            res.reverse()
+        return res
+
+    @staticmethod
+    def calculate_b1(k0: float,
+                     k1: float,
+                     h0: float,
+                     h1: float,
+                     b0: mathutils.Vector,
+                     b2: mathutils.Vector,
+                     s0: mathutils.Vector,
+                     s1: mathutils.Vector,
+                     s2: mathutils.Vector,
+                     ve: mathutils.Vector):
+        ve1 = 8 * ve / 2 / (k0 + k1)
+        ve2 = -(h0 + h1) * (s0 + 2 * s1 + s2) / 2 / (k0 + k1) - (b0 + b2) / 2
+        a = ve1.length_squared
+        b = 2 * (ve1.dot(ve2))
+        c = ve2.length_squared - 1
+        D = b**2 - 4 * a * c
+        if D >= 0:
+            l1 = (- b + math.sqrt(D)) / 2 / a
+            l2 = (- b - math.sqrt(D)) / 2 / a
+            for l in (l1, l2):
+                res = ve1 * l + ve2
+                if ve.dot(res) > 0:
+                    return res
+        return (b0 + b2) / 2
+
+    def calculate_coefs(self, glist: "GlobalList"):
+        self.kk[0][0], self.kk[0][1], self.kk[0][2], self.kk[0][3] = self.get_edge_control_points(0, glist)
+        self.kk[1][0], self.kk[2][0], self.kk[3][0] = self.get_edge_control_points(3, glist)[1:]
+        self.kk[1][3], self.kk[2][3], self.kk[3][3] = self.get_edge_control_points(1, glist)[1:]
+        self.kk[3][1], self.kk[3][2] = self.get_edge_control_points(2, glist)[1:3]
+
+    def extract_first_handle(self, i: int):
+        if self.directions[i]:
+            return self.segments[i].p1.handle_right
+        return self.segments[i].p2.handle_left
+
+    def extract_last_handle(self, i: int):
+        if self.directions[i]:
+            return self.segments[i].p2.handle_left
+        return self.segments[i].p1.handle_right
+
+    def get_neighbour_quad(self, i: int):
+        seg = self.segments[i]
+        if len(seg.quads) == 1:
+            return None
+        res = [quad for quad in seg.quads if quad != self][0]
+        assert isinstance(res, Quad)
+        return res
+
+    def extract_a0_a3(self, i: int):
+        if i == 0:
+            a0 = self.extract_first_handle(3)
+            a3 = self.extract_first_handle(1)
+        elif i == 1:
+            a0 = self.extract_last_handle(0)
+            a3 = self.extract_last_handle(2)
+        elif i == 2:
+            a0 = self.extract_last_handle(3)
+            a3 = self.extract_last_handle(1)
+        elif i == 3:
+            a0 = self.extract_first_handle(0)
+            a3 = self.extract_first_handle(2)
+        else:
+            raise ValueError("wrong i")
+        return a0, a3
+
+    def calculate_coefs_along_segment(self, i: int, glist: "GlobalList"):
+        neighbour_quad = self.get_neighbour_quad(i)
+        if neighbour_quad is None:
+            return False
+        a0, a3 = self.extract_a0_a3(i)
+        s0 = self.extract_first_handle(i)
+        _, k1, k2, __ = self.get_edge_control_points(i, glist)
+        s1 = k2 - k1
+        s2 = -self.extract_last_handle(i)
+        neighbour_i = neighbour_quad.segments.index(self.segments[i])
+        bb0, bb2 = neighbour_quad.extract_a0_a3(neighbour_i)
+        if self.directions[i] != neighbour_quad.directions[neighbour_i]:
+            bb0, bb2 = bb2, bb0
+        b0 = (bb0 - a0).normalized()
+        b2 = (bb2 - a3).normalized()
+        for v in (a0, a3, b0, b2, s0, s2):
+            if v.length < TH:
+                return False
+        if not are_coplanar(a0, b0, s0) or not are_coplanar(a3, s2, b2):
+            return False
+        if b0.cross(s0).length < TH or b2.cross(s2).length < TH:
+            return False
+        k0, h0 = get_coefs(b0, s0, a0)
+        k1, h1 = get_coefs(b2, s2, a3)
+        b1 = Quad.calculate_b1(k0, k1, h0, h1, b0, b2, s0, s1, s2, ve)
+        a1 = 1/3 * (2 * k0 * b1 + k1 * b0 + 2 * h0 * s1 + h1 * s0)
+        a2 = 1/3 * (k0 * b2 + 2 * k1 * b1 + h0 * s2 + 2 * h1 * s1)
+        return True
 
 class GlobalList:
     def __init__(self):
@@ -1140,6 +1298,8 @@ class GlobalList:
         self.quads: List[Quad] = []
         self.big_quads: List[BigQuad] = []
         self.segments: List[Segment] = []
+        self.verts: List[mathutils.Vector] | npt.NDArray[np.float64]
+        self.faces: List[List[int]] | npt.NDArray[np.int64]
 
     def create_bpoint(self, coords: mathutils.Vector):
         self.reduced_points.append(coords)
@@ -1275,6 +1435,11 @@ class GlobalList:
     def subdivide_quads(self, obj: bpy.types.ID):
         for bq in self.big_quads:
             bq.subdivide(self, obj)
+
+    def render_mesh(self, d: "DependantsOfResolution|DependantsOfResolution_np", obj: bpy.types.Object):
+        for quad in self.quads:
+            quad.render_quad(self, d)
+        
 
 
 def work_with_mesh(glist: GlobalList, active: bpy.types.Object, nedges: int):
