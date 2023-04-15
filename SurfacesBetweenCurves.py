@@ -382,10 +382,11 @@ class StepRes(Enum):
     PART_FINISHED = 3
 
 class BigPoint:
-    def __init__(self, i: int):
+    def __init__(self, i: int, coords: mathutils.Vector):
         self.points: List[Point] = []
         self.i = i
         self.count = 0
+        self.coords = coords
 
     def add_point(self, point: "Point"):
         self.points.append(point)
@@ -419,7 +420,7 @@ class Spline:
         i = 0
         added = False
         count = self.glist.get_count()
-        bpoint = BigPoint(-1) # placeholder
+        bpoint = BigPoint(-1, mathutils.Vector((0, 0, 0))) # placeholder
         while not added:
             if i == count:
                 bpoint = self.glist.create_bpoint(coords)
@@ -457,10 +458,10 @@ class Segment:
         if len(self.quads) == 2:
             self.finished = True
 
-    def calculate_midpoint(self, glist: "GlobalList"):
-        p0 = glist.get_coords(self.p1.i)
+    def calculate_midpoint(self):
+        p0 = self.p1.bpoint.coords
         p1 = p0 + self.p1.handle_right
-        p3 = glist.get_coords(self.p2.i)
+        p3 = self.p2.bpoint.coords
         p2 = p3 + self.p2.handle_left
         return 1/8 * (p0 + 3*p1 + 3*p2 + p3)
 
@@ -621,11 +622,11 @@ class BigQuad:
         self.corner_handles.append((handle_left_3, handle_right_3))
 
     @staticmethod
-    def extract_coords(edg: List[Segment], dir: bool, glist: "GlobalList"):
+    def extract_coords(edg: List[Segment], dir: bool):
         if dir:
-            res = [glist.get_coords(p.i) for p in Segment.iterate_direct(edg)]
+            res = [p.bpoint.coords for p in Segment.iterate_direct(edg)]
         else:
-            res = [glist.get_coords(p.i) for p in Segment.iterate_reversed(edg)]
+            res = [p.bpoint.coords for p in Segment.iterate_reversed(edg)]
         return res
 
     def extract_handles(self, edg: List[Segment], i: int):
@@ -1181,12 +1182,12 @@ class Quad:
             seg.add_quad(self)
         glist.add_quad(self)
 
-    def get_edge_control_points(self, edge_num: int, glist: "GlobalList"):
+    def get_edge_control_points(self, edge_num: int):
         p1 = self.segments[edge_num].p1
         p4 = self.segments[edge_num].p2
-        k1 = glist.get_coords(p1.i)
+        k1 = p1.bpoint.coords
         k2 = k1 + p1.handle_right
-        k4 = glist.get_coords(p4.i)
+        k4 = p4.bpoint.coords
         k3 = k4 + p4.handle_left
         res = [k1, k2, k3, k4]
         if not self.directions[edge_num]:
@@ -1260,6 +1261,14 @@ class Quad:
             raise ValueError("wrong i")
         return a0, a3
 
+    def calculate_ve(self, i: int, neighbour: "Quad", neighbour_i: int, glist: GlobalList) -> mathutils.Vector:
+        m1 = calc_basis(init: mathutils.Vector,
+               edge: mathutils.Vector,
+               point: mathutils.Vector,
+               handle1: mathutils.Vector,
+               handle2: Optional[mathutils.Vector] = None,
+               permut: bool = True):
+
     def calculate_coefs_along_segment(self, i: int, glist: "GlobalList"):
         neighbour_quad = self.get_neighbour_quad(i)
         if neighbour_quad is None:
@@ -1303,7 +1312,7 @@ class GlobalList:
 
     def create_bpoint(self, coords: mathutils.Vector):
         self.reduced_points.append(coords)
-        bpoint = BigPoint(self.count)
+        bpoint = BigPoint(self.count, coords)
         self.big_points.append(bpoint)
         self.count += 1
         return bpoint
